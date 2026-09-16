@@ -6,10 +6,11 @@ from fastapi import FastAPI
 from app.config import get_settings
 from app.database import Base, engine
 from app.error_handlers import register_exception_handlers
+from app.logging_config import RequestLoggingMiddleware, setup_logging
 from app.routes import health, incidents, services
 
 settings = get_settings()
-logging.basicConfig(level=settings.log_level.upper())
+setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 
@@ -27,6 +28,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.add_middleware(RequestLoggingMiddleware)
 register_exception_handlers(app)
 
 app.include_router(health.router)
