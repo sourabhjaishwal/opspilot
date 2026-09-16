@@ -6,7 +6,7 @@ OpsPilot is a small incident and service-health API. It provides persistent serv
 
 The backend currently supports service CRUD, service status updates, incident CRUD, incident filtering, deterministic pagination, validation, and centralized domain error responses.
 
-Authentication, deployment automation, Docker, Ansible, AWS, AI-assisted analysis, RAG, and frontend functionality are planned or out of scope for this stage.
+Authentication, deployment automation, Ansible, AWS, AI-assisted analysis, RAG, and frontend functionality are planned or out of scope for this stage. A production-style Docker image is available for local container testing.
 
 ## Technology stack
 
@@ -66,6 +66,26 @@ The API is available at `http://127.0.0.1:8000`.
 
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - OpenAPI schema: `http://127.0.0.1:8000/openapi.json`
+
+## Run with Docker
+
+Build the image using the canonical `Dockerfile`:
+
+```bash
+docker build -t opspilot:0.2 .
+```
+
+Run the API with SQLite data persisted in a named volume. The volume is mounted at `/app/data`; application files remain part of the image:
+
+```powershell
+docker run -d `
+  --name opspilot-api `
+  -p 8000:8000 `
+  -v opspilot-data:/app/data `
+  opspilot:0.2
+```
+
+The container exposes port `8000`, runs as a non-root user, and includes a Docker health check for `/health`.
 
 ## API endpoints
 
