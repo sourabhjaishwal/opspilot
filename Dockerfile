@@ -3,6 +3,7 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DATABASE_URL=sqlite:///./data/opspilot.db
+ENV PYTHONPATH=/app
 
 WORKDIR /app
 
@@ -10,7 +11,7 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+COPY backend/app ./app
 
 RUN useradd --create-home --uid 10001 opspilot \
     && mkdir -p /app/data \

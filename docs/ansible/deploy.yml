@@ -1,0 +1,7 @@
+---
+- name: Deploy OpsPilot
+  hosts: all
+  become: true
+  gather_facts: false
+  roles:
+    - opspilot_deploy

@@ -1,0 +1,76 @@
+---
+- name: Ensure Docker service is running
+  become: true
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Check whether the Docker volume exists
+  ansible.builtin.command:
+    cmd: docker volume inspect {{ opspilot_volume_name }}
+  register: volume_inspect
+  changed_when: false
+  failed_when: false
+
+- name: Create the persistent Docker volume
+  ansible.builtin.command:
+    cmd: docker volume create {{ opspilot_volume_name }}
+  when: volume_inspect.rc != 0
+  changed_when: true
+
+- name: Check whether the OpsPilot image exists
+  ansible.builtin.command:
+    cmd: docker image inspect {{ opspilot_image }}
+  register: image_inspect
+  changed_when: false
+  failed_when: false
+
+- name: Build the OpsPilot image when it is missing
+  ansible.builtin.command:
+    cmd: docker build --tag {{ opspilot_image }} {{ opspilot_project_root }}
+  when: image_inspect.rc != 0
+  changed_when: true
+
+- name: Check whether the OpsPilot container exists
+  ansible.builtin.command:
+    cmd: docker container inspect {{ opspilot_container_name }}
+  register: container_inspect
+  changed_when: false
+  failed_when: false
+
+- name: Run the OpsPilot container when it is missing
+  ansible.builtin.command:
+    cmd: >-
+      docker run -d
+      --name {{ opspilot_container_name }}
+      --restart unless-stopped
+      -p {{ opspilot_host_port }}:{{ opspilot_container_port }}
+      -v {{ opspilot_volume_name }}:/app/data
+      -e LOG_LEVEL={{ opspilot_environment.LOG_LEVEL }}
+      -e ENVIRONMENT={{ opspilot_environment.ENVIRONMENT }}
+      {{ opspilot_image }}
+  when: container_inspect.rc != 0
+  changed_when: true
+
+- name: Check whether the OpsPilot container is running
+  ansible.builtin.command:
+    cmd: docker inspect --format {% raw %}'{{ .State.Running }}'{% endraw %} {{ opspilot_container_name }}
+  register: container_running
+  changed_when: false
+  when: container_inspect.rc == 0
+
+- name: Start the OpsPilot container when it is stopped
+  ansible.builtin.command:
+    cmd: docker start {{ opspilot_container_name }}
+  when:
+    - container_inspect.rc == 0
+    - container_running.stdout | trim != "true"
+  changed_when: true
+
+- name: Verify the OpsPilot health endpoint
+  ansible.builtin.uri:
+    url: "{{ opspilot_health_url }}"
+    method: GET
+    status_code: 200
+    return_content: false

@@ -19,17 +19,12 @@ Authentication, deployment automation, Ansible, AWS, AI-assisted analysis, RAG, 
 ## Repository structure
 
 ```text
-app/
-  main.py                 FastAPI application and startup lifecycle
-  config.py               Environment-based settings
-  database.py             SQLAlchemy engine and session dependency
-  exceptions.py           Domain exceptions
-  error_handlers.py       Exception-to-HTTP translation
-  routes/                 HTTP route handlers
-  models/                 SQLAlchemy database models
-  schemas/                Pydantic API schemas
-  services/               Business and database logic
-tests/                    API and service-layer tests using isolated SQLite
+backend/
+  app/                    FastAPI application, models, routes, schemas, services
+  tests/                  API and service-layer tests using isolated SQLite
+frontend/                 Vite + React operations dashboard
+docs/                     Deployment and operations documentation
+docs/ansible/             Paused Ansible playbooks and Molecule scenarios
 ```
 
 ## Local setup
@@ -176,8 +171,8 @@ Domain exceptions are translated centrally into consistent HTTP responses:
 
 - Routes handle HTTP input, response schemas, dependency injection, and domain-exception propagation.
 - Service modules contain database queries, persistence, validation, filtering, pagination, and other business logic.
-- Domain exceptions are defined in `app/exceptions.py`.
-- Exception-to-HTTP translation is centralized in `app/error_handlers.py` and registered by `app/main.py`.
+- Domain exceptions are defined in `backend/app/exceptions.py`.
+- Exception-to-HTTP translation is centralized in `backend/app/error_handlers.py` and registered by `backend/app/main.py`.
 
 ## Run tests
 

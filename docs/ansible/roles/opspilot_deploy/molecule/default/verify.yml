@@ -1,0 +1,47 @@
+---
+- name: Verify OpsPilot deployment
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check that the OpsPilot container exists
+      ansible.builtin.command:
+        cmd: docker container inspect opspilot-api
+      register: container_inspect
+      changed_when: false
+      failed_when: false
+
+    - name: Check that the OpsPilot container is running
+      ansible.builtin.command:
+        cmd: docker inspect --format {% raw %}'{{ .State.Running }}'{% endraw %} opspilot-api
+      register: container_running
+      changed_when: false
+      failed_when: false
+
+    - name: Assert that the OpsPilot container exists and is running
+      ansible.builtin.assert:
+        that:
+          - container_inspect.rc == 0
+          - container_running.rc == 0
+          - container_running.stdout | trim == "true"
+        fail_msg: "The opspilot-api container is missing or not running."
+
+    - name: Check the OpsPilot health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8000/health
+        method: GET
+        status_code: 200
+        return_content: false
+
+    - name: Check that the persistent Docker volume exists
+      ansible.builtin.command:
+        cmd: docker volume inspect opspilot-data
+      register: volume_inspect
+      changed_when: false
+      failed_when: false
+
+    - name: Assert that the persistent Docker volume exists
+      ansible.builtin.assert:
+        that:
+          - volume_inspect.rc == 0
+        fail_msg: "The opspilot-data Docker volume does not exist."

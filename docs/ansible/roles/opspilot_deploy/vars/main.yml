@@ -1,0 +1,2 @@
+---
+# Keep deployment-specific variables in defaults/main.yml so they can be overridden.
