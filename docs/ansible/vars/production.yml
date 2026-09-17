@@ -1,6 +1,0 @@
-ENVIRONMENT: production
-LOG_LEVEL: INFO
-APP_PORT: 8000
-AWS_REGION: us-east-1
-CONTAINER_IMAGE: opspilot:latest
-PERSISTENT_VOLUME: opspilot-data
