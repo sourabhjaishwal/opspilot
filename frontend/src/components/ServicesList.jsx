@@ -11,7 +11,7 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
-function ServicesList({ services, loading, onRegistered, onError }) {
+function ServicesList({ services, loading, onRegistered, onError, isAdmin }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -45,13 +45,15 @@ function ServicesList({ services, loading, onRegistered, onError }) {
         </div>
         <div className="panel-actions">
           <span className="count-label">{services.length} total</span>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setIsOpen(true)}
-          >
-            + Register Service
-          </button>
+          {isAdmin && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setIsOpen(true)}
+            >
+              + Register Service
+            </button>
+          )}
         </div>
       </div>
       <div className="service-list">

@@ -12,12 +12,17 @@ from app.schemas.incident import (
     Severity,
 )
 from app.services import incident_service
+from app.routes.deps import get_current_user
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
 @router.post("", response_model=IncidentResponse, status_code=status.HTTP_201_CREATED)
-def create_incident(incident_data: IncidentCreate, db: Session = Depends(get_db)) -> IncidentResponse:
+def create_incident(
+    incident_data: IncidentCreate,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+) -> IncidentResponse:
     return incident_service.create_incident(db, incident_data)
 
 
@@ -29,16 +34,21 @@ def list_incidents(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
 ) -> IncidentListResponse:
     return incident_service.list_incidents(db, service, severity, status, page, page_size)
 
 
 @router.get("/{incident_id}", response_model=IncidentResponse)
-def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentResponse:
+def get_incident(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+) -> IncidentResponse:
     incident = incident_service.get_incident(db, incident_id)
     if incident is None:
         raise IncidentNotFoundError(incident_id)
-    return incident
+    return incident_service._serialize_incident(incident)
 
 
 @router.patch("/{incident_id}", response_model=IncidentResponse)

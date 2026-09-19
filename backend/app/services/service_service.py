@@ -1,12 +1,17 @@
-from datetime import datetime, timezone
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.exceptions import ServiceNameAlreadyExistsError
 from app.models.service import Service
 from app.schemas.service import ServiceCreate, ServiceStatusUpdate, ServiceUpdate
+
+logger = logging.getLogger(__name__)
 
 
 def create_service(db: Session, service_data: ServiceCreate) -> Service:
@@ -78,3 +83,32 @@ def _set_service_status(service: Service, status: str) -> None:
     service.status = status
     service.last_checked_at = now
     service.updated_at = now
+
+
+async def poll_services_for_health() -> None:
+    while True:
+        try:
+            db = SessionLocal()
+            now = datetime.now(timezone.utc)
+            services = db.scalars(select(Service)).all()
+            for service in services:
+                if service.status == "down":
+                    continue
+                if service.last_checked_at is None or now - service.last_checked_at > timedelta(minutes=5):
+                    service.status = "degraded"
+                    service.last_checked_at = now
+                    service.updated_at = now
+                    logger.warning("Health poll marked service degraded: %s", service.name)
+                else:
+                    service.status = "healthy"
+                    service.last_checked_at = now
+                    service.updated_at = now
+            db.commit()
+            db.close()
+        except Exception as exc:  # pragma: no cover - defensive background monitoring
+            logger.exception("Health poll failed: %s", exc)
+        await asyncio.sleep(60)
+
+
+def start_service_health_monitor() -> asyncio.Task[None]:
+    return asyncio.create_task(poll_services_for_health())

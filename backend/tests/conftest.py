@@ -6,6 +6,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+from app.models.user import User
+from app.routes.deps import get_current_user
 
 TEST_DATABASE_URL = "sqlite://"
 test_engine = create_engine(
@@ -28,6 +30,9 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, username="test-admin", hashed_password="", role="admin"
+    )
     try:
         test_client = TestClient(app)
         yield test_client

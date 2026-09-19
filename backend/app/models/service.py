@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, relationship, mapped_column
 
 from app.database import Base
 
@@ -23,3 +25,5 @@ class Service(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+    incidents: Mapped[list["Incident"]] = relationship(back_populates="service")

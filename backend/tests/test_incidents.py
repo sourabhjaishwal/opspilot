@@ -208,9 +208,12 @@ def test_empty_page_preserves_matching_total(client, registered_service):
 
 def test_deterministic_ordering_uses_id_as_tiebreaker(client, db, registered_service):
     created_at = datetime(2026, 1, 1)
+    service = db.query(type("ServiceQuery", (), {"__getattr__": lambda self, name: None})()).all() if False else db.execute(
+        __import__("sqlalchemy").sql.select(__import__("app.models.service", fromlist=["Service"]).Service)
+    ).scalar_one()
     incidents = [
         Incident(
-            service="payment-service",
+            service_id=service.id,
             severity="high",
             status="open",
             title=f"Incident {index}",

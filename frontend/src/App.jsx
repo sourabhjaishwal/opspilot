@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { getServices } from "./api/client";
+import AuthPanel from "./components/AuthPanel";
 import HealthStatus from "./components/HealthStatus";
 import ServicesList from "./components/ServicesList";
 import IncidentsTable from "./components/IncidentsTable";
-import "./App.css";
+import { useAuth } from "./context/AuthContext";
+import "./styles.scss";
 
 function App() {
   const [health, setHealth] = useState("checking");
@@ -12,6 +14,20 @@ function App() {
   const [summary, setSummary] = useState({ total: 0, open: 0 });
   const [error, setError] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
+  const { user, login, logout: clearSession, isAuthenticated } = useAuth();
+
+  function handleAuthenticated(session) {
+    login(session);
+    setError("");
+    setRefreshToken((value) => value + 1);
+  }
+
+  async function handleLogout() {
+    try {
+      await clearSession();
+    } catch {}
+    setError("");
+  }
 
   function loadServices() {
     setServicesLoading(true);
@@ -22,6 +38,10 @@ function App() {
   }
 
   useEffect(() => {
+    if (!isAuthenticated || !user) {
+      setServicesLoading(false);
+      return undefined;
+    }
     let active = true;
     getServices()
       .then((response) => {
@@ -36,7 +56,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [refreshToken]);
+  }, [refreshToken, user, isAuthenticated]);
 
   function refreshDashboard() {
     setError("");
@@ -61,75 +81,112 @@ function App() {
             <h1>OpsPilot</h1>
           </div>
         </div>
-        <HealthStatus key={refreshToken} onStatusChange={setHealth} />
+        <div className="topbar-actions">
+          <HealthStatus key={refreshToken} onStatusChange={setHealth} />
+          {user && (
+            <span className="user-badge">
+              {user.username} / {user.role}
+            </span>
+          )}
+          {user && (
+            <button
+              className="logout-button"
+              type="button"
+              onClick={handleLogout}
+            >
+              Log out
+            </button>
+          )}
+        </div>
       </header>
 
-      <main>
-        <section className="intro-row">
-          <div>
-            <p className="eyebrow accent-text">Live service intelligence</p>
-            <h2>Keep the signal clear.</h2>
-            <p className="intro-copy">
-              A quiet, focused view of the systems your team is responsible for.
-            </p>
-          </div>
-          <button
-            className="refresh-button"
-            type="button"
-            onClick={refreshDashboard}
-            title="Refresh dashboard"
-          >
-            <span aria-hidden="true">↻</span> Refresh data
-          </button>
-        </section>
+      <main className={isAuthenticated ? "" : "auth-main"}>
+        {!isAuthenticated ? (
+          <section className="auth-layout">
+            <div className="auth-copy">
+              <p className="eyebrow accent-text">Live service intelligence</p>
+              <h2>Keep the signal clear.</h2>
+              <p className="intro-copy">
+                A quiet, focused view of the systems your team is responsible
+                for.
+              </p>
+            </div>
+            <AuthPanel
+              onAuthenticated={handleAuthenticated}
+              onError={setError}
+            />
+          </section>
+        ) : (
+          <>
+            <section className="intro-row">
+              <div>
+                <p className="eyebrow accent-text">Live service intelligence</p>
+                <h2>Keep the signal clear.</h2>
+                <p className="intro-copy">
+                  A quiet, focused view of the systems your team is responsible
+                  for.
+                </p>
+              </div>
+              <button
+                className="refresh-button"
+                type="button"
+                onClick={refreshDashboard}
+                title="Refresh dashboard"
+              >
+                <span aria-hidden="true">↻</span> Refresh data
+              </button>
+            </section>
 
-        {error && (
-          <div className="error-banner" role="alert">
-            {error}
-          </div>
+            {error && (
+              <div className="error-banner" role="alert">
+                {error}
+              </div>
+            )}
+
+            <section className="metric-strip" aria-label="Platform summary">
+              <div className="metric-card">
+                <span>Services online</span>
+                <strong>
+                  {healthyServices}
+                  <small> / {services.length}</small>
+                </strong>
+                <em>registered services</em>
+              </div>
+              <div className="metric-card">
+                <span>Visible incidents</span>
+                <strong>{summary.total}</strong>
+                <em>{summary.open} requiring attention</em>
+              </div>
+              <div className="metric-card">
+                <span>System status</span>
+                <strong className="status-value">
+                  {health === "healthy"
+                    ? "Nominal"
+                    : health === "checking"
+                      ? "Checking"
+                      : "Offline"}
+                </strong>
+                <em>last checked just now</em>
+              </div>
+            </section>
+
+            <div className="content-grid">
+              <ServicesList
+                services={services}
+                loading={servicesLoading}
+                onRegistered={loadServices}
+                onError={setError}
+                isAdmin={user.role === "admin"}
+              />
+            </div>
+            <IncidentsTable
+              key={refreshToken}
+              services={services}
+              onSummaryChange={handleSummaryChange}
+              onError={setError}
+            />
+          </>
         )}
-
-        <section className="metric-strip" aria-label="Platform summary">
-          <div className="metric-card">
-            <span>Services online</span>
-            <strong>
-              {healthyServices}
-              <small> / {services.length}</small>
-            </strong>
-            <em>registered services</em>
-          </div>
-          <div className="metric-card">
-            <span>Visible incidents</span>
-            <strong>{summary.total}</strong>
-            <em>{summary.open} requiring attention</em>
-          </div>
-          <div className="metric-card">
-            <span>System status</span>
-            <strong className="status-value">
-              {health === "healthy"
-                ? "Nominal"
-                : health === "checking"
-                  ? "Checking"
-                  : "Offline"}
-            </strong>
-            <em>last checked just now</em>
-          </div>
-        </section>
-
-        <div className="content-grid">
-          <ServicesList
-            services={services}
-            loading={servicesLoading}
-            onRegistered={loadServices}
-            onError={setError}
-          />
-        </div>
-        <IncidentsTable
-          key={refreshToken}
-          services={services}
-          onSummaryChange={handleSummaryChange}
-          onError={setError}
-        />
       </main>
       <footer>
         <span>OpsPilot / service health</span>
