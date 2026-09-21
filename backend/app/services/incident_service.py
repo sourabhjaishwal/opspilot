@@ -34,20 +34,16 @@ def _serialize_incident(incident: Incident) -> IncidentResponse:
 
 
 def create_incident(db: Session, incident_data: IncidentCreate) -> IncidentResponse:
-    service_name = incident_data.service
-    service_id = incident_data.service_id
+    service = db.get(Service, incident_data.service_id)
+    if service is None:
+        raise ServiceNotFoundError(f"service_id={incident_data.service_id}")
 
-    if service_id is not None:
-        service = db.get(Service, service_id)
-        if service is None:
-            raise ServiceNotFoundError(f"service_id={service_id}")
-    else:
-        service = db.scalar(select(Service).where(Service.name == service_name))
-        if service is None:
-            raise ServiceNotFoundError(service_name or "")
-
-    payload = incident_data.model_dump(exclude={"service", "service_id"})
-    incident = Incident(service_id=service.id, **payload)
+    incident = Incident(
+        service_id=service.id,
+        severity=incident_data.severity,
+        title=incident_data.title,
+        description=incident_data.description,
+    )
     db.add(incident)
     db.commit()
     db.refresh(incident)

@@ -56,6 +56,7 @@ def update_incident(
     incident_id: int,
     incident_data: IncidentUpdate,
     db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
 ) -> IncidentResponse:
     incident = incident_service.get_incident(db, incident_id)
     if incident is None:

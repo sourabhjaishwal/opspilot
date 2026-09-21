@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.auth import decode_access_token
 from app.database import get_db
-from app.models.token import is_token_blacklisted
 from app.models.user import User
 
 
@@ -21,7 +20,7 @@ def get_current_user(
         detail="Authentication required",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if credentials is None or is_token_blacklisted(credentials.credentials):
+    if credentials is None:
         raise unauthorized
     payload = decode_access_token(credentials.credentials)
     user = db.scalar(select(User).where(User.id == int(payload["sub"])))

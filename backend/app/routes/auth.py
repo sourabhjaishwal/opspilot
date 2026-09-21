@@ -1,13 +1,11 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import create_access_token, hash_password, verify_password
 from app.database import get_db
-from app.models.token import blacklist_token
 from app.models.user import User
 from app.routes.deps import get_current_user
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
@@ -15,7 +13,6 @@ from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserR
 logger = logging.getLogger("app.auth")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-bearer_scheme = HTTPBearer()
 
 
 def _user_response(user: User) -> UserResponse:
@@ -90,10 +87,6 @@ def login(credentials: LoginRequest, db: Session = Depends(get_db)) -> TokenResp
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    current_user: User = Depends(get_current_user),
-) -> None:
-    del current_user
-    blacklist_token(credentials.credentials)
-    logger.info("User logged out successfully: token blacklisted")
+def logout(_: User = Depends(get_current_user)) -> None:
+    # Token invalidation is handled client-side by discarding the token.
+    logger.info("User logged out successfully")

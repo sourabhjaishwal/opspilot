@@ -1,14 +1,15 @@
-import logging
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.database import Base, engine
 from app.error_handlers import register_exception_handlers
 from app.logging_config import RequestLoggingMiddleware, setup_logging
+import app.models  # noqa: F401
 from app.routes import auth, health, incidents, services
-from app.services.service_service import start_service_health_monitor
 
 settings = get_settings()
 setup_logging(settings.log_level)
@@ -16,14 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    task = start_service_health_monitor()
-    logger.info("Application started: %s", settings.app_name)
-    try:
-        yield
-    finally:
-        task.cancel()
-        logger.info("Application stopped")
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    yield
 
 
 app = FastAPI(
