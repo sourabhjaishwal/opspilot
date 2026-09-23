@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     frontend_url: str = "http://localhost:5173"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.6-flash"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

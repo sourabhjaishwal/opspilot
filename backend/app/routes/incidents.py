@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.exceptions import IncidentNotFoundError
+from app.schemas.ai import AIIncidentAnalysis
 from app.schemas.incident import (
     IncidentCreate,
     IncidentListResponse,
@@ -11,7 +12,7 @@ from app.schemas.incident import (
     IncidentUpdate,
     Severity,
 )
-from app.services import incident_service
+from app.services import ai_service, incident_service
 from app.routes.deps import get_current_user
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -62,3 +63,15 @@ def update_incident(
     if incident is None:
         raise IncidentNotFoundError(incident_id)
     return incident_service.update_incident(db, incident, incident_data)
+
+
+@router.post("/{incident_id}/analyze", response_model=AIIncidentAnalysis)
+def analyze_incident(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+) -> AIIncidentAnalysis:
+    incident = incident_service.get_incident(db, incident_id)
+    if incident is None:
+        raise IncidentNotFoundError(incident_id)
+    return ai_service.analyze_incident(incident)
