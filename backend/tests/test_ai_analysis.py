@@ -111,3 +111,29 @@ def test_analyze_incident_invalid_json_returns_502(client, sample_incident):
         response = client.post(f"/incidents/{sample_incident['id']}/analyze")
         assert response.status_code == 502
         assert "Failed to parse AI response" in response.json()["detail"]
+def test_analyze_incident_passes_rag_context_to_gemini(client, sample_incident):
+    mock_analysis = AIIncidentAnalysis(
+        summary="AI-generated summary with RAG context.",
+        possible_root_cause="Connection leak root cause.",
+        recommended_checks=["Check connection pool"],
+        suggested_resolution="Increase pool max connections.",
+    )
+
+    with patch("app.services.ai_service.get_settings") as mock_settings, \
+         patch("app.services.ai_service.genai.Client") as mock_genai_client:
+        mock_settings.return_value = Settings(gemini_api_key="test-key", gemini_model="gemini-3.6-flash")
+        mock_response = MagicMock()
+        mock_response.parsed = mock_analysis
+        mock_genai_client.return_value.models.generate_content.return_value = mock_response
+
+        response = client.post(f"/incidents/{sample_incident['id']}/analyze")
+        assert response.status_code == 200
+
+        # Verify Gemini was called with a prompt containing knowledge context
+        call_args = mock_genai_client.return_value.models.generate_content.call_args
+        assert call_args is not None
+        prompt_content = call_args.kwargs.get("contents") or call_args[1].get("contents")
+        assert "Relevant Troubleshooting Knowledge" in prompt_content
+        assert "Database" in prompt_content or "pool" in prompt_content.lower()
+        assert response.json()["knowledge_used"] is True
+

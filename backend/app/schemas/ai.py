@@ -14,3 +14,7 @@ class AIIncidentAnalysis(BaseModel):
     suggested_resolution: str = Field(
         description="Pragmatic remediation or mitigation steps to resolve the incident."
     )
+    knowledge_used: bool = Field(
+        default=False,
+        description="Indicates whether relevant knowledge base entries were retrieved and included in the analysis."
+    )

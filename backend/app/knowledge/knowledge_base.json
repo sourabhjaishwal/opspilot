@@ -1,0 +1,201 @@
+﻿[
+  {
+    "id": "KB001",
+    "title": "API 500 Internal Server Error",
+    "keywords": ["500", "internal server error", "unhandled exception", "stack trace", "server error", "http 500", "api error", "500 errors", "exception", "traceback"],
+    "issue": "API endpoints returning HTTP 500 Internal Server Error responses",
+    "symptoms": [
+      "HTTP 500 responses on API endpoints",
+      "Error logs showing unhandled exceptions or stack traces",
+      "Increased error rate in monitoring dashboards"
+    ],
+    "possible_causes": [
+      "Unhandled exception in application code",
+      "Unexpected input data causing code path failures",
+      "Bug introduced in a recent deployment"
+    ],
+    "troubleshooting_steps": [
+      "Check application error logs for the full stack trace",
+      "Identify the specific endpoint and request payload triggering the 500",
+      "Review recent code deployments or config changes in the last 24 hours",
+      "Test the endpoint manually with known-good payloads"
+    ],
+    "resolution": "Fix the identified code bug. Roll back the deployment if a recent change introduced the error. Add input validation and proper error handling."
+  },
+  {
+    "id": "KB002",
+    "title": "Database Connection Failure",
+    "keywords": ["database", "db", "connection", "pool", "timeout", "connection refused", "pool exhausted", "queuepool", "sqlalchemy", "database error", "connection timeout", "connection pool", "database connection", "db pool"],
+    "issue": "Application cannot establish or maintain connections to the database",
+    "symptoms": [
+      "Connection timeout errors in application logs",
+      "QueuePool limit reached or pool exhausted errors",
+      "API requests failing with 500 or 503 errors",
+      "Database health check endpoint reporting down"
+    ],
+    "possible_causes": [
+      "Database connection pool exhausted due to connection leaks",
+      "Database server is down or unreachable",
+      "Too many concurrent connections exceeding max_connections limit",
+      "Long-running queries holding connections open"
+    ],
+    "troubleshooting_steps": [
+      "Check database server logs for connection limit errors",
+      "Verify database server is reachable",
+      "Check current active connections count",
+      "Inspect application connection pool settings",
+      "Identify and terminate long-running queries"
+    ],
+    "resolution": "Increase connection pool size if traffic has grown. Fix connection leaks. Kill idle connections. Scale database if overloaded."
+  },
+  {
+    "id": "KB003",
+    "title": "Authentication and Authorization Failures",
+    "keywords": ["auth", "authentication", "authorization", "401", "403", "jwt", "token", "forbidden", "unauthorized", "login", "oauth", "token expired", "token invalid", "auth failure", "access denied"],
+    "issue": "Users unable to authenticate or access authorized resources",
+    "symptoms": [
+      "HTTP 401 Unauthorized responses for valid credentials",
+      "HTTP 403 Forbidden responses for authorized users",
+      "JWT token validation failures in logs",
+      "Users being unexpectedly logged out"
+    ],
+    "possible_causes": [
+      "JWT secret key mismatch between services",
+      "Token expiry time set too short",
+      "Clock skew between services causing token timestamp validation failure",
+      "Auth provider or identity server unreachable"
+    ],
+    "troubleshooting_steps": [
+      "Decode the failing JWT and check iat/exp claims for clock skew",
+      "Verify all services share the same JWT secret key",
+      "Check auth provider health endpoint and logs",
+      "Confirm server times are synchronized via NTP"
+    ],
+    "resolution": "Synchronize server clocks via NTP. Rotate and propagate JWT secret consistently. Extend token TTL if appropriate. Restore or failover the auth provider."
+  },
+  {
+    "id": "KB004",
+    "title": "High API Latency and Slow Response Times",
+    "keywords": ["latency", "slow", "timeout", "performance", "response time", "degraded", "delay", "spike", "high latency", "slow response", "api latency", "latency spike", "9200ms", "slowdown"],
+    "issue": "API endpoints responding significantly slower than normal baseline",
+    "symptoms": [
+      "Response times increasing beyond acceptable thresholds",
+      "Timeout errors on downstream service calls",
+      "CPU or memory usage elevated on application servers",
+      "Database query times increasing in slow query logs"
+    ],
+    "possible_causes": [
+      "N+1 database query patterns causing excessive DB load",
+      "Missing database indexes on frequently queried columns",
+      "External API dependency experiencing latency",
+      "Traffic spike exceeding application server capacity"
+    ],
+    "troubleshooting_steps": [
+      "Check slow query logs for queries exceeding 100ms threshold",
+      "Review database EXPLAIN plans for sequential scans",
+      "Check CPU, memory, and network metrics on all app servers",
+      "Profile the slowest endpoints to identify bottlenecks"
+    ],
+    "resolution": "Add missing database indexes. Optimize N+1 queries. Implement caching. Scale out application servers if the cause is pure traffic volume."
+  },
+  {
+    "id": "KB005",
+    "title": "Service Unavailable (503)",
+    "keywords": ["503", "service unavailable", "down", "outage", "unreachable", "health check", "not responding", "service down", "service outage", "health check failing", "health endpoint"],
+    "issue": "Service returning 503 Service Unavailable or health checks failing",
+    "symptoms": [
+      "HTTP 503 responses from load balancer or service",
+      "Health check endpoint returning non-200 responses",
+      "Monitoring alerts for service availability dropping"
+    ],
+    "possible_causes": [
+      "All application instances crashed or unresponsive",
+      "Deployment gone wrong leaving service in broken state",
+      "Resource exhaustion: out of memory, disk full, or CPU at 100%",
+      "Circuit breaker tripped due to cascading failure"
+    ],
+    "troubleshooting_steps": [
+      "Check if any application processes are running on the service hosts",
+      "Review application startup logs for crash reasons",
+      "Check disk space, memory, and CPU on service hosts",
+      "Review recent deployment logs and changelogs"
+    ],
+    "resolution": "Restart crashed application processes. Roll back to last known good deployment. Free disk space or add memory."
+  },
+  {
+    "id": "KB006",
+    "title": "Notification Service Failures",
+    "keywords": ["notification", "email", "sms", "push", "notification failure", "email delivery", "smtp", "notification service", "alert delivery", "email failed", "sms failed", "transactional email", "delayed"],
+    "issue": "Transactional notifications failing to deliver",
+    "symptoms": [
+      "Users not receiving expected email or SMS notifications",
+      "Notification failure errors or dead-letter queue buildup",
+      "SMTP authentication errors in logs",
+      "Bounce rate spiking in email delivery provider dashboard"
+    ],
+    "possible_causes": [
+      "Email/SMS provider API credentials expired",
+      "Provider rate limit exceeded",
+      "Invalid or malformed recipient email/phone in the request",
+      "Network connectivity issue between notification service and provider"
+    ],
+    "troubleshooting_steps": [
+      "Check email/SMS provider dashboard for delivery errors",
+      "Verify API credentials in provider sandbox",
+      "Review notification service logs for error codes",
+      "Test a manual notification with a known-valid address"
+    ],
+    "resolution": "Rotate and update provider API credentials. Implement exponential retry with backoff. Validate recipient formats. Clear the dead-letter queue after fixing root cause."
+  },
+  {
+    "id": "KB007",
+    "title": "Order Processing Failures",
+    "keywords": ["order", "checkout", "order stuck", "order failed", "order processing", "checkout failure", "order status", "pending", "order management", "order confirmation", "lock contention", "inventory"],
+    "issue": "Orders failing to process, stuck in pending state, or not completing",
+    "symptoms": [
+      "Orders remaining in pending state without transitioning",
+      "Checkout endpoint returning errors or timeouts",
+      "Customer complaints about payments but no order confirmation",
+      "Database lock contention errors in order processing logs"
+    ],
+    "possible_causes": [
+      "Database lock contention on orders table during high traffic",
+      "Payment gateway timeout causing partial order state",
+      "Inventory reservation failure blocking order confirmation",
+      "Event publishing failure leaving orders in limbo"
+    ],
+    "troubleshooting_steps": [
+      "Query orders stuck in pending for over 10 minutes",
+      "Check payment gateway logs for matching transaction IDs",
+      "Review database for lock contention or deadlock logs",
+      "Verify inventory service health and API responses"
+    ],
+    "resolution": "Fix database lock contention with optimistic locking. Implement idempotent order state transitions. Add a reconciliation job to recover stuck orders."
+  },
+  {
+    "id": "KB008",
+    "title": "Payment Processing Latency and Webhook Backlog",
+    "keywords": ["payment", "webhook", "payment processing", "payment gateway", "webhook backlog", "payment timeout", "payment latency", "card settlement", "transaction", "payment service", "settlement"],
+    "issue": "Payment processing latency spiking and webhook event backlog accumulating",
+    "symptoms": [
+      "Payment API response times exceeding 5 seconds",
+      "Inbound payment gateway webhook queue depth growing",
+      "Intermittent payment timeout errors for end users",
+      "Settlement batch jobs taking longer than usual"
+    ],
+    "possible_causes": [
+      "Payment provider experiencing upstream degradation",
+      "Webhook consumer service too slow",
+      "Database writes during payment processing causing contention",
+      "Retry storms amplifying traffic during partial provider outage"
+    ],
+    "troubleshooting_steps": [
+      "Check payment provider status page for ongoing incidents",
+      "Monitor webhook consumer throughput and queue depth",
+      "Review payment service database query times during the spike",
+      "Throttle retry frequency to avoid amplifying provider load",
+      "Scale out webhook consumer workers if queue is growing"
+    ],
+    "resolution": "Scale webhook consumers horizontally to drain the backlog. Implement exponential backoff for gateway retries. Circuit-break the payment gateway temporarily if needed."
+  }
+]

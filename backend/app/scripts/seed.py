@@ -1,7 +1,7 @@
-﻿"""Database seed script for OpsPilot local development and demonstrations."""
+"""Database seed script for OpsPilot local development and demonstrations."""
 
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import Base, SessionLocal, engine
@@ -82,40 +82,80 @@ SEED_SERVICES = [
                 "severity": "medium",
                 "status": "open",
                 "title": "Delayed Transactional Email Dispatch",
-                "description": "Outbound order confirmation emails experiencing a 25-minute queue lag caused by rate-limit throttling on SMTP gateway.",
+                "description": "Transactional email delivery delayed by 15-30 minutes for order confirmations and password reset flows.",
                 "hours_ago": 6,
             },
             {
                 "severity": "low",
                 "status": "resolved",
-                "title": "SMS Gateway 502 Bad Gateway Response Spike",
-                "description": "SMS provider returned sporadic HTTP 502 responses during maintenance window; retries drained queue.",
-                "hours_ago": 72,
+                "title": "Push Notification Token Expiry Spike",
+                "description": "Mobile push notification delivery rate dropped 12% due to batch of expired device tokens not pruned from registry.",
+                "hours_ago": 36,
+            },
+        ],
+    },
+    {
+        "name": "Inventory Service",
+        "description": "Tracks product stock levels, manages reservations, and coordinates warehouse sync.",
+        "status": "healthy",
+        "incidents": [
+            {
+                "severity": "low",
+                "status": "resolved",
+                "title": "Inventory Cache Inconsistency After Deployment",
+                "description": "Product stock counts briefly incorrect after deployment flushed in-memory cache without warming.",
+                "hours_ago": 12,
+            },
+            {
+                "severity": "high",
+                "status": "open",
+                "title": "Warehouse Sync Service Connection Failure",
+                "description": "Real-time warehouse inventory sync failing due to ERP database connection pool exhaustion.",
+                "hours_ago": 5,
             },
         ],
     },
     {
         "name": "Reporting Service",
-        "description": "Generates asynchronous business intelligence reports and data exports.",
+        "description": "Generates real-time and scheduled operational analytics, dashboards, and export reports.",
         "status": "degraded",
         "incidents": [
             {
-                "severity": "high",
-                "status": "open",
-                "title": "Nightly Reconciliation Report Generation Failure",
-                "description": "Scheduled nightly reconciliation worker terminated unexpectedly with OOM error during full-table scan.",
+                "severity": "medium",
+                "status": "investigating",
+                "title": "Dashboard Query Timeout on Large Date Ranges",
+                "description": "Reporting dashboard queries timing out for date ranges exceeding 90 days due to missing composite index.",
                 "hours_ago": 8,
             },
             {
-                "severity": "medium",
-                "status": "investigating",
-                "title": "Increased API Latency on Analytics Export Endpoint",
-                "description": "CSV export endpoint latency degraded from 1.5s to 42s due to missing composite index on query predicates.",
-                "hours_ago": 12,
+                "severity": "low",
+                "status": "resolved",
+                "title": "Scheduled Report Export Email Delivery Failure",
+                "description": "Nightly CSV report exports failed to send via email due to SMTP credential rotation without config update.",
+                "hours_ago": 20,
             },
         ],
     },
 ]
+
+
+def _next_incident_number(db: Session) -> str:
+    """Generate the next incident number based on current max numeric incident_number or id."""
+    incidents = db.scalars(select(Incident)).all()
+    max_num = 0
+    for inc in incidents:
+        if inc.incident_number and inc.incident_number.startswith("INC"):
+            try:
+                num = int(inc.incident_number[3:])
+                if num > max_num:
+                    max_num = num
+            except ValueError:
+                pass
+        if inc.id and inc.id > max_num:
+            max_num = inc.id
+    next_number = max_num + 1
+    return f"INC{next_number:05d}"
+
 
 def seed_database(db: Session | None = None) -> dict[str, int]:
     """Populate SQLite database with fictional services and incidents idempotently."""
@@ -161,7 +201,9 @@ def seed_database(db: Session | None = None) -> dict[str, int]:
                 )
                 if incident is None:
                     created_time = now - timedelta(hours=inc_data["hours_ago"])
+                    inc_number = _next_incident_number(db)
                     incident = Incident(
+                        incident_number=inc_number,
                         service_id=service.id,
                         severity=inc_data["severity"],
                         status=inc_data["status"],
@@ -173,10 +215,14 @@ def seed_database(db: Session | None = None) -> dict[str, int]:
                     db.add(incident)
                     db.commit()
                     incidents_created += 1
-                    print(f"      [+] Created Incident: [{inc_data['severity'].upper()}] {inc_data['title']}")
+                    print(f"      [+] Created Incident: {inc_number} [{inc_data['severity'].upper()}] {inc_data['title']}")
                 else:
+                    if incident.incident_number is None:
+                        incident.incident_number = _next_incident_number(db)
+                        db.commit()
+                        print(f"      [~] Backfilled number {incident.incident_number} for: {incident.title}")
                     incidents_existing += 1
-                    print(f"      [.] Existing Incident: [{incident.severity.upper()}] {incident.title}")
+                    print(f"      [.] Existing Incident: {incident.incident_number} [{incident.severity.upper()}] {incident.title}")
 
         return {
             "services_created": services_created,
@@ -198,4 +244,3 @@ if __name__ == "__main__":
     print(f"Services:  {result['services_created']} created, {result['services_existing']} already existed")
     print(f"Incidents: {result['incidents_created']} created, {result['incidents_existing']} already existed")
     print("Database seeding completed successfully.\n")
-

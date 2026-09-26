@@ -12,6 +12,7 @@ class Incident(Base):
     __tablename__ = "incidents"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    incident_number: Mapped[str] = mapped_column(String(10), unique=True, index=True, nullable=True)
     service_id: Mapped[int] = mapped_column(ForeignKey("services.id"), nullable=False, index=True)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")

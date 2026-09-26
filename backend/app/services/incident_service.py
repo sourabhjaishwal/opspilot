@@ -19,9 +19,23 @@ from app.schemas.incident import (
 logger = logging.getLogger(__name__)
 
 
+def _generate_incident_number(db: Session) -> str:
+    """Generate the next unique incident number in the format INC00001.
+
+    Uses the current max incident id + 1 to produce a collision-free,
+    strictly monotonically increasing number. Simple and explainable.
+
+    Format: INC + 5-digit zero-padded number, e.g. INC00001, INC00042.
+    """
+    max_id = db.scalar(select(func.max(Incident.id))) or 0
+    next_number = max_id + 1
+    return f"INC{next_number:05d}"
+
+
 def _serialize_incident(incident: Incident) -> IncidentResponse:
     return IncidentResponse(
         id=incident.id,
+        incident_number=incident.incident_number,
         service_id=incident.service_id,
         service=incident.service.name if incident.service is not None else "",
         severity=incident.severity,
@@ -33,12 +47,16 @@ def _serialize_incident(incident: Incident) -> IncidentResponse:
     )
 
 
+
 def create_incident(db: Session, incident_data: IncidentCreate) -> IncidentResponse:
     service = db.get(Service, incident_data.service_id)
     if service is None:
         raise ServiceNotFoundError(f"service_id={incident_data.service_id}")
 
+    incident_number = _generate_incident_number(db)
+
     incident = Incident(
+        incident_number=incident_number,
         service_id=service.id,
         severity=incident_data.severity,
         title=incident_data.title,
@@ -47,7 +65,7 @@ def create_incident(db: Session, incident_data: IncidentCreate) -> IncidentRespo
     db.add(incident)
     db.commit()
     db.refresh(incident)
-    logger.info("Incident created: id=%s service=%s", incident.id, service.name)
+    logger.info("Incident created: id=%s number=%s service=%s", incident.id, incident_number, service.name)
     return _serialize_incident(incident)
 
 

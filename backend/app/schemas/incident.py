@@ -23,6 +23,7 @@ class IncidentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    incident_number: str | None
     service_id: int
     service: str
     severity: Severity
