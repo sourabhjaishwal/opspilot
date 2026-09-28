@@ -74,4 +74,9 @@ def analyze_incident(
     incident = incident_service.get_incident(db, incident_id)
     if incident is None:
         raise IncidentNotFoundError(incident_id)
-    return ai_service.analyze_incident(incident)
+    try:
+        return ai_service.analyze_incident(incident)
+    except ValueError as exc:
+        # Rate limit error from ai_service
+        from fastapi import HTTPException
+        raise HTTPException(status_code=429, detail=str(exc)) from exc

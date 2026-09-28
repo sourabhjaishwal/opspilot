@@ -48,3 +48,12 @@ def db(client):
         yield session
     finally:
         session.close()
+
+
+@pytest.fixture(autouse=True)
+def clear_ai_rate_limiter():
+    """Clear the AI service rate limiter state before each test."""
+    from app.services import ai_service
+    with ai_service._rate_lock:
+        ai_service._last_analyzed.clear()
+    yield

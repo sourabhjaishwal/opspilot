@@ -13,12 +13,36 @@ from app.services import rag_service
 
 logger = logging.getLogger(__name__)
 
-# Fallback models in case the configured model is experiencing high demand (503 / 429)
+# Fallback models in case the configured model is experiencing high demand (503 / 429).
+# gemini-1.5-flash and gemini-2.0-flash are deprecated and return 404 errors.
 _FALLBACK_MODELS = [
     "gemini-2.5-flash",
-    "gemini-1.5-flash",
-    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
 ]
+
+# ---------------------------------------------------------------------------
+# Per-incident rate limiting  (in-process, resets on server restart)
+# ---------------------------------------------------------------------------
+import threading as _threading
+
+_rate_lock = _threading.Lock()
+_last_analyzed: dict[int, float] = {}
+RATE_LIMIT_SECONDS = 30  # minimum gap between analyses for the same incident
+
+
+def _check_and_record_rate_limit(incident_id: int) -> None:
+    """Raise ValueError if the same incident was analyzed too recently."""
+    now = time.time()
+    with _rate_lock:
+        last = _last_analyzed.get(incident_id, 0.0)
+        elapsed = now - last
+        if elapsed < RATE_LIMIT_SECONDS:
+            remaining = int(RATE_LIMIT_SECONDS - elapsed)
+            raise ValueError(
+                f"Please wait {remaining}s before re-analyzing incident #{incident_id}."
+            )
+        _last_analyzed[incident_id] = now
 
 
 def build_incident_prompt(
@@ -102,6 +126,9 @@ def analyze_incident(incident: Incident) -> AIIncidentAnalysis:
         raise AIServiceConfigError(
             "Gemini API key is not configured. Please set GEMINI_API_KEY in your environment."
         )
+
+    # Rate limit: prevent hammering the API for the same incident
+    _check_and_record_rate_limit(incident.id)
 
     service_name = incident.service.name if incident.service is not None else "Unknown Service"
     service_status = incident.service.status if incident.service is not None else "Unknown"

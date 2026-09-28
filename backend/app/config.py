@@ -4,16 +4,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "OpsPilot"
-    environment: str = "development"
-    database_url: str = "sqlite:///./opspilot.db"
-    log_level: str = "INFO"
-    jwt_secret: str = "change-this-secret-in-production"
-    access_token_expire_minutes: int = 60
-    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    frontend_url: str = "http://localhost:5173"
+    app_name: str
+    environment: str
+    database_url: str
+    log_level: str
+    jwt_secret: str
+    access_token_expire_minutes: int
+    allowed_origins: str
+    frontend_url: str
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
