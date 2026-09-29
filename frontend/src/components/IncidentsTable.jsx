@@ -1,256 +1,364 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createIncident, getIncidents } from "../api/client";
 
 const emptyIncident = {
-  service: "",
+  service_id: "",
   severity: "medium",
   title: "",
   description: "",
 };
 
-function formatTime(value) {
-  return new Intl.DateTimeFormat("en", {
-    hour: "2-digit",
-    minute: "2-digit",
+const initialFilters = {
+  service: "",
+  severity: "",
+  status: "",
+  page: 1,
+};
+
+function formatDate(isoString) {
+  return new Date(isoString).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
-  }).format(new Date(value));
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function IncidentsTable({ services, onSummaryChange, onError }) {
-  const [filters, setFilters] = useState({
-    service: "",
-    severity: "",
-    status: "",
-  });
-  const [incidents, setIncidents] = useState({
-    items: [],
-    total: 0,
-    page: 1,
-    page_size: 5,
-  });
-  const [form, setForm] = useState(emptyIncident);
-  const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function stateLabel(status) {
+  if (status === "resolved") return "Resolved";
+  if (status === "investigating") return "Investigating";
+  return "Open";
+}
 
-  function loadIncidents(nextFilters = filters) {
-    setLoading(true);
-    return getIncidents(nextFilters)
-      .then((response) => {
+export default function IncidentsTable({ services, onSummaryChange, onError, onSelectIncident }) {
+  const [incidents, setIncidents] = useState({ items: [], total: 0 });
+  const [filters, setFilters] = useState(initialFilters);
+  const [form, setForm] = useState(emptyIncident);
+  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [formSuccess, setFormSuccess] = useState("");
+
+  const loadIncidents = useCallback(
+    async (queryFilters = filters) => {
+      setLoading(true);
+      try {
+        const response = await getIncidents(queryFilters);
         setIncidents(response);
-        onSummaryChange(
-          response.total,
-          response.items.filter((incident) => incident.status !== "resolved")
-            .length,
-        );
-      })
-      .catch((error) => onError(error.message))
-      .finally(() => setLoading(false));
-  }
+        if (onSummaryChange) {
+          getIncidents({ page: 1, page_size: 100 })
+            .then((allData) => {
+              const openCount = allData.items.filter(
+                (incident) => incident.status !== "resolved",
+              ).length;
+              onSummaryChange(allData.total, openCount);
+            })
+            .catch(() => {
+              const openCount = response.items.filter(
+                (incident) => incident.status !== "resolved",
+              ).length;
+              onSummaryChange(response.total, openCount);
+            });
+        }
+        return response;
+      } catch (error) {
+        if (onError) onError(error.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [filters, onError, onSummaryChange],
+  );
 
   useEffect(() => {
-    let active = true;
-    getIncidents({})
+    let isMounted = true;
+    getIncidents({ page: 1, page_size: 5 })
       .then((response) => {
-        if (!active) return;
+        if (!isMounted) return;
         setIncidents(response);
-        onSummaryChange(
-          response.total,
-          response.items.filter((incident) => incident.status !== "resolved")
-            .length,
-        );
+        if (onSummaryChange) {
+          getIncidents({ page: 1, page_size: 100 })
+            .then((allData) => {
+              if (!isMounted) return;
+              const openCount = allData.items.filter(
+                (incident) => incident.status !== "resolved",
+              ).length;
+              onSummaryChange(allData.total, openCount);
+            })
+            .catch(() => {
+              const openCount = response.items.filter(
+                (incident) => incident.status !== "resolved",
+              ).length;
+              onSummaryChange(response.total, openCount);
+            });
+        }
       })
       .catch((error) => {
-        if (active) onError(error.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+        if (isMounted && onError) onError(error.message);
       });
+
     return () => {
-      active = false;
+      isMounted = false;
     };
   }, [onError, onSummaryChange]);
 
-  function updateFilter(event) {
-    const nextFilters = { ...filters, [event.target.name]: event.target.value };
+  function handleFilterChange(key, value) {
+    const nextFilters = { ...filters, [key]: value, page: 1 };
+    setFilters(nextFilters);
+    loadIncidents(nextFilters);
+  }
+
+  function handlePageChange(newPage) {
+    const nextFilters = { ...filters, page: newPage };
     setFilters(nextFilters);
     loadIncidents(nextFilters);
   }
 
   async function submitIncident(event) {
     event.preventDefault();
+    setFormError("");
+    setFormSuccess("");
+
+    if (!form.service_id) {
+      setFormError("Please select an affected service.");
+      return;
+    }
+
     setIsSubmitting(true);
-    onError("");
     try {
-      await createIncident(form);
+      await createIncident({
+        ...form,
+        service_id: Number(form.service_id),
+      });
+
       setForm(emptyIncident);
-      await loadIncidents();
+      setFilters(initialFilters);
+      setFormSuccess("Incident logged successfully.");
+
+      await loadIncidents(initialFilters);
     } catch (error) {
-      onError(error.message);
+      const message =
+        !error?.message || error.message.toLowerCase().includes("failed to fetch")
+          ? "Failed to create incident"
+          : error.message;
+      setFormError(message);
+      if (onError) onError(message);
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  const totalPages = Math.ceil(incidents.total / 5);
+
   return (
-    <section className="dashboard-lower">
-      <section className="panel incidents-panel">
-        <div className="panel-heading incident-heading">
+    <div className="incident-layout">
+      {/* Incidents table card */}
+      <section className="card">
+        <div className="card-header">
           <div>
-            <p className="eyebrow">Response queue</p>
-            <h3>Recent incidents</h3>
+            <h2>Recent Incidents ({incidents.total})</h2>
+            <p>Showing {incidents.items.length} of {incidents.total} total recorded incidents</p>
           </div>
-          <span className="count-label">{incidents.total} matching</span>
         </div>
-        <div className="filters" aria-label="Incident filters">
+
+        {/* Filters */}
+        <div className="filters-row">
           <select
-            name="service"
             value={filters.service}
-            onChange={updateFilter}
+            onChange={(e) => handleFilterChange("service", e.target.value)}
+            aria-label="Filter by service"
           >
-            <option value="">All services</option>
-            {services.map((service) => (
-              <option key={service.name} value={service.name}>
-                {service.name}
+            <option value="">All Services</option>
+            {services.map((svc) => (
+              <option key={svc.id} value={svc.name}>
+                {svc.name}
               </option>
             ))}
           </select>
           <select
-            name="severity"
             value={filters.severity}
-            onChange={updateFilter}
+            onChange={(e) => handleFilterChange("severity", e.target.value)}
+            aria-label="Filter by severity"
           >
-            <option value="">All severities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
+            <option value="">All Severities</option>
             <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
           </select>
-          <select name="status" value={filters.status} onChange={updateFilter}>
-            <option value="">All statuses</option>
+          <select
+            value={filters.status}
+            onChange={(e) => handleFilterChange("status", e.target.value)}
+            aria-label="Filter by status"
+          >
+            <option value="">All Statuses</option>
             <option value="open">Open</option>
             <option value="investigating">Investigating</option>
             <option value="resolved">Resolved</option>
           </select>
         </div>
-        <div className="incident-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Incident</th>
-                <th>Service</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {incidents.items.map((incident) => (
-                <tr key={incident.id}>
-                  <td>
-                    <strong>{incident.title}</strong>
-                    <span>{incident.description}</span>
-                  </td>
-                  <td>{incident.service}</td>
-                  <td>
-                    <span className={`severity ${incident.severity}`}>
-                      {incident.severity}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`incident-status ${incident.status}`}>
-                      {incident.status}
-                    </span>
-                  </td>
-                  <td>{formatTime(incident.created_at)}</td>
-                </tr>
-              ))}
-              {!loading && incidents.items.length === 0 && (
+
+        {/* Table */}
+        <div className="table-wrapper">
+          {loading ? (
+            <p className="loading-state">Loading incidents...</p>
+          ) : incidents.items.length === 0 ? (
+            <p className="empty-state">No incidents match the selected filters.</p>
+          ) : (
+            <table>
+              <thead>
                 <tr>
-                  <td className="empty-state" colSpan="5">
-                    No incidents match the current filters.
-                  </td>
+                  <th>Incident Number</th>
+                  <th>Created On</th>
+                  <th>Severity Level</th>
+                  <th>Incident Title</th>
+                  <th>Current State</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {incidents.items.map((incident) => (
+                  <tr
+                    key={incident.id}
+                    className="incident-table-row"
+                    onClick={() => onSelectIncident(incident)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") onSelectIncident(incident);
+                    }}
+                    aria-label={`View details for incident ${incident.incident_number || incident.id}: ${incident.title}`}
+                  >
+                    <td>
+                      <span className="incident-number-cell">
+                        {incident.incident_number || `#${incident.id}`}
+                      </span>
+                    </td>
+                    <td className="timestamp-cell">{formatDate(incident.created_at)}</td>
+                    <td>
+                      <span className={"severity-pill " + incident.severity}>
+                        {incident.severity}
+                      </span>
+                    </td>
+                    <td>
+                      <strong>{incident.title}</strong>
+                      <p className="incident-description">{incident.service}</p>
+                    </td>
+                    <td>
+                      <span className={"status-pill " + incident.status}>
+                        {stateLabel(incident.status)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="pagination-row">
+            <button
+              disabled={filters.page <= 1}
+              onClick={() => handlePageChange(filters.page - 1)}
+              className="ghost-button"
+              style={{ padding: "0.2rem 0.5rem" }}
+            >
+              &lt;
+            </button>
+            {[...Array(totalPages)].map((_, idx) => {
+              const p = idx + 1;
+              return (
+                <button
+                  key={p}
+                  onClick={() => handlePageChange(p)}
+                  className={p === filters.page ? "primary-button" : "ghost-button"}
+                  style={{ padding: "0.2rem 0.5rem", minWidth: "30px" }}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <button
+              disabled={filters.page >= totalPages}
+              onClick={() => handlePageChange(filters.page + 1)}
+              className="ghost-button"
+              style={{ padding: "0.2rem 0.5rem" }}
+            >
+              &gt;
+            </button>
+          </div>
+        )}
       </section>
 
-      <section className="panel create-panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">Incident intake</p>
-            <h3>Report an incident</h3>
-          </div>
+      {/* Report Incident form */}
+      <section className="card form-card">
+        <div className="card-header">
+          <h3>Report Incident</h3>
         </div>
         <form onSubmit={submitIncident}>
+          {formError && (
+            <div className="form-error" role="alert">
+              {formError}
+            </div>
+          )}
+          {formSuccess && (
+            <div className="form-success" role="alert">
+              {formSuccess}
+            </div>
+          )}
           <label>
-            Service
+            Affected Service
             <select
               required
-              value={form.service}
-              onChange={(event) =>
-                setForm({ ...form, service: event.target.value })
-              }
+              value={form.service_id}
+              onChange={(e) => setForm({ ...form, service_id: e.target.value })}
             >
-              <option value="">Select a service</option>
-              {services.map((service) => (
-                <option key={service.name} value={service.name}>
-                  {service.name}
+              <option value="" disabled>Select a service...</option>
+              {services.map((svc) => (
+                <option key={svc.id} value={svc.id}>
+                  {svc.name}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Severity
+            Severity Level
             <select
               value={form.severity}
-              onChange={(event) =>
-                setForm({ ...form, severity: event.target.value })
-              }
+              onChange={(e) => setForm({ ...form, severity: e.target.value })}
             >
-              <option>low</option>
-              <option>medium</option>
-              <option>high</option>
-              <option>critical</option>
+              <option value="low">Low - Minimal impact</option>
+              <option value="medium">Medium - Partial degradation</option>
+              <option value="high">High - Significant disruption</option>
+              <option value="critical">Critical - Complete outage</option>
             </select>
           </label>
           <label>
             Title
             <input
               required
+              placeholder="e.g. Database connection timeouts"
               value={form.title}
-              placeholder="What changed?"
-              onChange={(event) =>
-                setForm({ ...form, title: event.target.value })
-              }
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </label>
           <label>
-            Description
+            Detailed Description
             <textarea
               required
-              rows="3"
+              rows={4}
+              placeholder="Describe symptoms, logs, or metrics observed..."
               value={form.description}
-              placeholder="Add useful context for the responder"
-              onChange={(event) =>
-                setForm({ ...form, description: event.target.value })
-              }
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </label>
-          <button
-            className="primary-button"
-            disabled={isSubmitting}
-            type="submit"
-          >
-            {isSubmitting ? "Creating..." : "Create incident"}{" "}
-            <span aria-hidden="true">→</span>
+          <button type="submit" className="primary-button" disabled={isSubmitting}>
+            {isSubmitting ? "Submitting..." : "Submit Incident Report"}
           </button>
         </form>
       </section>
-    </section>
+    </div>
   );
 }
-
-export default IncidentsTable;

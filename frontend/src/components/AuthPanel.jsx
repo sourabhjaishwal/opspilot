@@ -1,79 +1,106 @@
+// Authentication panel providing user login and registration forms
 import { useState } from "react";
-import { login, register } from "../api/client";
+import { login as loginApi, register as registerApi } from "../api/client";
 
-function AuthPanel({ onAuthenticated, onError }) {
+export default function AuthPanel({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({
     username: "",
     password: "",
     role: "user",
   });
-  const [submitting, setSubmitting] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notice, setNotice] = useState(null); // { message: string, type: 'error' | 'success' }
 
-  async function submit(event) {
+  // Handle credentials form submission
+  async function handleSubmit(event) {
     event.preventDefault();
-    setSubmitting(true);
-    setNotice("");
-    onError("");
+    setIsSubmitting(true);
+    setNotice(null);
+
     try {
-      const session = await (mode === "login" ? login(form) : register(form));
-      setNotice(
-        mode === "login"
-          ? "Signed in successfully."
-          : "Account created successfully.",
-      );
-      onAuthenticated(session);
-    } catch (error) {
-      const message = error.message || "Authentication failed.";
-      setNotice(message);
-      onError(message);
+      if (mode === "login") {
+        const session = await loginApi({
+          username: form.username,
+          password: form.password,
+        });
+        onAuthenticated(session);
+      } else {
+        const session = await registerApi(form);
+        setNotice({
+          message: "Account registered successfully! Logging you in...",
+          type: "success",
+        });
+        onAuthenticated(session);
+      }
+    } catch (err) {
+      setNotice({
+        message: err.message || "Authentication failed. Please try again.",
+        type: "error",
+      });
     } finally {
-      setSubmitting(false);
+      setIsSubmitting(false);
     }
   }
 
+  function handleModeChange(nextMode) {
+    setMode(nextMode);
+    setNotice(null);
+  }
+
   return (
-    <section className="auth-panel panel">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Operator access</p>
-          <h3>
-            {mode === "login" ? "Sign in to OpsPilot" : "Create an account"}
-          </h3>
-        </div>
+    <div className="auth-card">
+      <div className="auth-tabs">
         <button
-          className="secondary-button"
           type="button"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
+          className={mode === "login" ? "tab-active" : ""}
+          onClick={() => handleModeChange("login")}
         >
-          {mode === "login" ? "Register" : "Sign in"}
+          Sign In
+        </button>
+        <button
+          type="button"
+          className={mode === "register" ? "tab-active" : ""}
+          onClick={() => handleModeChange("register")}
+        >
+          Create Account
         </button>
       </div>
-      <form onSubmit={submit}>
+
+      <form onSubmit={handleSubmit}>
+        {notice && (
+          <div className={`auth-notice ${notice.type}`} role="alert">
+            {notice.message}
+          </div>
+        )}
+
         <label>
           Username
           <input
             required
-            minLength="3"
+            autoComplete="username"
             value={form.username}
             onChange={(event) =>
               setForm({ ...form, username: event.target.value })
             }
+            placeholder="admin"
           />
         </label>
+
         <label>
           Password
           <input
             required
-            minLength="8"
             type="password"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
             value={form.password}
             onChange={(event) =>
               setForm({ ...form, password: event.target.value })
             }
+            placeholder="••••••••"
           />
         </label>
+
         {mode === "register" && (
           <label>
             Role
@@ -88,17 +115,19 @@ function AuthPanel({ onAuthenticated, onError }) {
             </select>
           </label>
         )}
-        {notice && <div className="auth-notice">{notice}</div>}
-        <button className="primary-button" disabled={submitting} type="submit">
-          {submitting
-            ? "Working..."
+
+        <button
+          type="submit"
+          className="primary-button"
+          disabled={isSubmitting}
+        >
+          {isSubmitting
+            ? "Processing..."
             : mode === "login"
-              ? "Sign in"
-              : "Create account"}
+              ? "Sign In"
+              : "Register Account"}
         </button>
       </form>
-    </section>
+    </div>
   );
 }
-
-export default AuthPanel;

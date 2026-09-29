@@ -1,183 +1,173 @@
-# OpsPilot
+﻿# OpsPilot
 
-OpsPilot is a small incident and service-health API. It provides persistent service management and incident tracking with SQLite.
+OpsPilot is a microservices incident response and service health management platform with local Retrieval-Augmented Generation (RAG) AI incident root-cause analysis.
 
-## Current scope
+## Technology Stack
 
-The backend currently supports service CRUD, service status updates, incident CRUD, incident filtering, deterministic pagination, validation, and centralized domain error responses.
+- **Backend:** Python 3.11+, FastAPI, SQLAlchemy, SQLite, Pydantic v2, google-genai SDK
+- **Frontend:** React 18, Vite, SCSS
+- **AI/RAG:** Google Gemini (`gemini-2.5-flash`), local token-matching retrieval engine
 
-Authentication, deployment automation, Ansible, AWS, AI-assisted analysis, RAG, and frontend functionality are planned or out of scope for this stage. A production-style Docker image is available for local container testing.
+---
 
-## Technology stack
+## AI Incident Analysis
 
-- Python 3.11+
-- FastAPI and Uvicorn
-- SQLAlchemy with SQLite
-- Pydantic and pydantic-settings
-- pytest and httpx
+OpsPilot integrates Google Gemini to provide automated, structured root-cause insights and diagnostic investigation checklists directly in the operational incident response workflow.
 
-## Repository structure
+### Architecture Flow
 
 ```text
-backend/
-  app/                    FastAPI application, models, routes, schemas, services
-  tests/                  API and service-layer tests using isolated SQLite
-frontend/                 Vite + React operations dashboard
-docs/                     Deployment and operations documentation
-docs/ansible/             Paused Ansible playbooks and Molecule scenarios
+Incident (Client)
+      ↓
+POST /incidents/{incident_id}/analyze
+      ↓
+FastAPI Router (auth check via JWT Bearer)
+      ↓
+AI Service (`ai_service.py`)
+      ↓
+RAG Retrieval (`rag_service.py` -> local knowledge base)
+      ↓
+Gemini Prompt (Incident context + Retrieved knowledge)
+      ↓
+Gemini API (`client.models.generate_content`)
+      ↓
+Structured JSON Analysis (`AIIncidentAnalysis`)
+      ↓
+Frontend Advisory Dashboard
 ```
 
-## Local setup
+### What Gemini Generates
 
-Create and activate a virtual environment:
+Gemini returns a strictly typed JSON object adhering to the `AIIncidentAnalysis` schema:
 
-```powershell
-py -3.11 -m venv .venv
+1. **`summary`**: A concise, 1-sentence incident overview with an explicit disclaimer that findings are AI-generated recommendations.
+2. **`possible_root_cause`**: 1–2 sentence hypotheses of underlying failure mechanisms based on symptoms, service context, and retrieved troubleshooting steps.
+3. **`recommended_checks`**: An actionable diagnostic checklist of specific metrics, logs, queries, or configs to inspect.
+4. **`suggested_resolution`**: Pragmatic, concrete remediation steps.
+5. **`knowledge_used`**: A boolean flag indicating whether internal runbook entries matched and augmented the analysis.
+
+### Security and API Key Isolation
+
+The Gemini API key (`GEMINI_API_KEY`) is stored exclusively in backend environment variables (`.env`) and is **never** transmitted to or accessible from frontend clients. All AI calls are mediated by authenticated FastAPI endpoints (`POST /incidents/{incident_id}/analyze`).
+
+---
+
+## RAG / Knowledge Retrieval
+
+OpsPilot implements a **lightweight, explainable local RAG system** designed for fast incident triage without complex vector infrastructure.
+
+### How it Works
+
+```text
+1. Incident is received (title, description, service, severity)
+         ↓
+2. Local Knowledge Base is searched (backend/app/knowledge/knowledge_base.json)
+         ↓
+3. Relevant entries are retrieved (token/keyword subset matching)
+         ↓
+4. Retrieved context is injected into the Gemini prompt
+         ↓
+5. Gemini generates the final context-aware analysis
+```
+
+1. **Query Tokenization:** The incident's `title`, `description`, `service_name`, and `severity` are lowercased and split into a normalized token set.
+2. **Subset Matching:** Each knowledge base entry contains a curated list of keywords/phrases (e.g., `"connection pool"`, `"500"`, `"timeout"`). An entry matches if all tokens of a keyword are present in the incident tokens.
+3. **Relevance Ranking:** Entries are scored by the count of matching keyword phrases and sorted in descending order.
+4. **Context Injection:** The top matches (up to 3) are formatted into structured text sections (causes, troubleshooting steps, resolutions) and appended to the Gemini prompt under a clear advisory header.
+5. **Graceful Fallback:** If no entries match, Gemini proceeds with zero-shot analysis using only the raw incident details.
+
+> **Note:** This is a lightweight, zero-dependency local RAG implementation for demonstration and MVP operational use, avoiding heavy external vector databases (Pinecone, Chroma, Milvus) while delivering explainable, deterministic retrieval.
+
+---
+
+## Incident Number Format
+
+Every incident is automatically assigned a unique, ServiceNow-style incident number:
+
+* **Format:** `INC` + 5-digit zero-padded number (e.g., `INC00001`, `INC00042`, `INC00100`).
+* **Generation:** Derived using `SELECT MAX(id) + 1` from the SQLite database at creation time.
+* **Guarantees:** Unique, monotonically increasing, collision-free, and persistent in the database (`incidents.incident_number` column with unique index).
+* **Backfill:** Existing records without incident numbers are automatically assigned numbers during database seeding.
+
+---
+
+## Database Seed & Demo Data
+
+The database includes an idempotent seed script covering realistic microservice architectures:
+
+```bash
+cd backend
+python -m app.scripts.seed
+```
+
+### Seeded Services (6):
+- **Payment API** (`down`) — Payment settlement and gateway webhook backlogs
+- **User Management API** (`degraded`) — OAuth2 token clock skew and LDAP timeouts
+- **Order Management API** (`degraded`) — DB connection pool timeouts and checkout locks
+- **Notification Service** (`healthy`) — Email/SMS rate limiting and template render warnings
+- **Inventory Service** (`healthy`) — Cache invalidation delays
+- **Reporting Service** (`healthy`) — Daily ledger aggregations
+
+### Seeded Incidents (12):
+Twelve realistic incidents with varying severities (`critical`, `high`, `medium`, `low`), statuses (`open`, `investigating`, `resolved`), and populated `INC00001`–`INC00012` identifiers.
+
+---
+
+## Local Development Setup
+
+### 1. Backend Setup
+
+```bash
+cd backend
+python -m venv .venv
+# Windows:
 .\.venv\Scripts\Activate.ps1
-```
-
-On macOS or Linux:
-
-```bash
-python3.11 -m venv .venv
+# macOS/Linux:
 source .venv/bin/activate
+
+pip install -r requirements.txt
 ```
 
-Install dependencies:
+Configure `.env`:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3.6-flash
+DATABASE_URL=sqlite:///./opspilot.db
+SECRET_KEY=opspilot-dev-secret-key-change-in-production-min-32-chars
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+```
+
+Run migrations & seed:
+```bash
+python -m app.scripts.seed
+```
+
+Start the API:
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+API Documentation: `http://localhost:8000/docs`
+
+### 2. Frontend Setup
 
 ```bash
-python -m pip install -r requirements.txt
+cd frontend
+npm install
+npm run dev
 ```
 
-Copy `.env.example` to `.env` to customize local settings. The default database is `sqlite:///./opspilot.db`.
+Frontend runs at `http://localhost:5173`.
 
-## Start the application
+---
+
+## Running Tests
+
+Run the full automated test suite (60 unit and integration tests):
 
 ```bash
-uvicorn app.main:app --reload
+cd backend
+pytest -v
 ```
 
-The API is available at `http://127.0.0.1:8000`.
-
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- OpenAPI schema: `http://127.0.0.1:8000/openapi.json`
-
-## Run with Docker
-
-Build the image using the canonical `Dockerfile`:
-
-```bash
-docker build -t opspilot:0.2 .
-```
-
-Run the API with SQLite data persisted in a named volume. The volume is mounted at `/app/data`; application files remain part of the image:
-
-```powershell
-docker run -d `
-  --name opspilot-api `
-  -p 8000:8000 `
-  -v opspilot-data:/app/data `
-  opspilot:0.2
-```
-
-The container exposes port `8000`, runs as a non-root user, and includes a Docker health check for `/health`.
-
-## API endpoints
-
-### Health and root
-
-- `GET /` - application name and version
-- `GET /health` - returns `{"status": "healthy"}`
-
-### Services
-
-Services are persisted in SQLite. Service status must be `healthy`, `degraded`, or `down`.
-
-- `POST /services` - create a service; returns `201`
-- `GET /services` - list services, ordered by name
-- `GET /services/{service_name}` - retrieve a service
-- `PATCH /services/{service_name}` - update service name, description, or status
-- `PATCH /services/{service_name}/status` - update status and record `last_checked_at`
-
-Service names are unique. A duplicate name returns `409` with `{"detail": "Service name already exists"}`. A missing service returns `404` with `{"detail": "Service not found"}`.
-
-Example service creation request:
-
-```json
-{
-  "name": "payment-service",
-  "description": "Handles payment processing",
-  "status": "healthy"
-}
-```
-
-### Incidents
-
-Incidents must reference a registered service. Severity must be `low`, `medium`, `high`, or `critical`. Incident status must be `open`, `investigating`, or `resolved`.
-
-- `POST /incidents` - create an incident; returns `201`
-- `GET /incidents` - list incidents with filtering and pagination
-- `GET /incidents/{incident_id}` - retrieve an incident
-- `PATCH /incidents/{incident_id}` - update incident status
-
-Creating an incident for an unknown service returns `404` with `{"detail": "Service not found"}`.
-
-Example incident creation request:
-
-```json
-{
-  "service": "payment-service",
-  "severity": "high",
-  "title": "Health endpoint returning 503",
-  "description": "The payment service health endpoint is returning HTTP 503."
-}
-```
-
-### Incident listing
-
-`GET /incidents` supports these optional query parameters:
-
-- `service` - exact service name filter
-- `severity` - exact severity filter
-- `status` - exact incident status filter
-- `page` - page number, minimum `1`, default `1`
-- `page_size` - items per page, minimum `1`, maximum `100`, default `20`
-
-Multiple filters are combined using `AND`. Results are ordered by `created_at DESC`, then `id DESC` for deterministic pagination.
-
-The response has this shape:
-
-```json
-{
-  "items": [],
-  "page": 1,
-  "page_size": 20,
-  "total": 0
-}
-```
-
-`total` is the number of matching incidents before pagination.
-
-## Error responses
-
-Domain exceptions are translated centrally into consistent HTTP responses:
-
-- `404` - `{"detail": "Incident not found"}`
-- `404` - `{"detail": "Service not found"}`
-- `409` - `{"detail": "Service name already exists"}`
-- `422` - request validation error, such as an unsupported status or invalid pagination value
-
-## Architecture
-
-- Routes handle HTTP input, response schemas, dependency injection, and domain-exception propagation.
-- Service modules contain database queries, persistence, validation, filtering, pagination, and other business logic.
-- Domain exceptions are defined in `backend/app/exceptions.py`.
-- Exception-to-HTTP translation is centralized in `backend/app/error_handlers.py` and registered by `backend/app/main.py`.
-
-## Run tests
-
-```bash
-pytest
-```
-
-Tests use an isolated in-memory SQLite database and do not modify the normal local database.
+All tests run against isolated in-memory SQLite instances with fully mocked external AI APIs.
