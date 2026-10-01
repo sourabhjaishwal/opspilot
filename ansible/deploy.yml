@@ -1,0 +1,143 @@
+---
+# OpsPilot Deployment Playbook
+# Deploys OpsPilot FastAPI container to AWS EC2 with persistent SQLite storage
+
+- name: Deploy OpsPilot to AWS EC2
+  hosts: opspilot
+  become: yes
+  vars:
+    docker_image: "opspilot:latest"
+    container_name: "opspilot-api"
+    data_volume: "opspilot-data"
+    app_port: 8000
+
+    # Environment variables (provided via ansible-vault or GitHub Secrets)
+    app_name: "{{ lookup('env', 'APP_NAME') | default('OpsPilot', true) }}"
+    app_environment: "{{ lookup('env', 'ENVIRONMENT') | default('production', true) }}"
+    database_url: "{{ lookup('env', 'DATABASE_URL') | default('sqlite:///./data/opspilot.db', true) }}"
+    log_level: "{{ lookup('env', 'LOG_LEVEL') | default('INFO', true) }}"
+    jwt_secret: "{{ lookup('env', 'JWT_SECRET') }}"
+    access_token_expire_minutes: "{{ lookup('env', 'ACCESS_TOKEN_EXPIRE_MINUTES') | default('60', true) }}"
+    allowed_origins: "{{ lookup('env', 'ALLOWED_ORIGINS') | default('*', true) }}"
+    frontend_url: "{{ lookup('env', 'FRONTEND_URL') | default('http://localhost:5173', true) }}"
+    gemini_api_key: "{{ lookup('env', 'GEMINI_API_KEY') }}"
+    gemini_model: "{{ lookup('env', 'GEMINI_MODEL') | default('gemini-2.0-flash-exp', true) }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Install Docker Python SDK
+      pip:
+        name: docker
+        state: present
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Create persistent Docker volume for SQLite data
+      docker_volume:
+        name: "{{ data_volume }}"
+        state: present
+
+    - name: Stop existing OpsPilot container (if running)
+      docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Pull/Load OpsPilot Docker image
+      docker_image:
+        name: "{{ docker_image }}"
+        source: pull
+        force_source: yes
+      when: docker_registry is defined
+
+    - name: Start OpsPilot container
+      docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ app_port }}:8000"
+        volumes:
+          - "{{ data_volume }}:/app/data"
+        env:
+          APP_NAME: "{{ app_name }}"
+          ENVIRONMENT: "{{ app_environment }}"
+          DATABASE_URL: "{{ database_url }}"
+          LOG_LEVEL: "{{ log_level }}"
+          JWT_SECRET: "{{ jwt_secret }}"
+          ACCESS_TOKEN_EXPIRE_MINUTES: "{{ access_token_expire_minutes }}"
+          ALLOWED_ORIGINS: "{{ allowed_origins }}"
+          FRONTEND_URL: "{{ frontend_url }}"
+          GEMINI_API_KEY: "{{ gemini_api_key }}"
+          GEMINI_MODEL: "{{ gemini_model }}"
+        healthcheck:
+          test:
+            [
+              "CMD",
+              "python",
+              "-c",
+              "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+            ]
+          interval: 30s
+          timeout: 5s
+          retries: 3
+          start_period: 10s
+
+    - name: Wait for container to be healthy
+      uri:
+        url: "http://localhost:{{ app_port }}/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: 10
+      delay: 5
+
+    - name: Display deployment success message
+      debug:
+        msg: "OpsPilot deployed successfully! Access at http://{{ ansible_host }}:{{ app_port }}"
