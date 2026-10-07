@@ -34,6 +34,16 @@ jobs:
         run: |
           cd backend
           PYTHONPATH=. pytest tests/ -v --tb=short
+        env:
+          APP_NAME: OpsPilot CI
+          ENVIRONMENT: test
+          DATABASE_URL: sqlite://
+          LOG_LEVEL: INFO
+          JWT_SECRET: ci-only-test-secret
+          ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+          ALLOWED_ORIGINS: http://localhost
+          FRONTEND_URL: http://localhost
+          GEMINI_MODEL: gemini-2.0-flash-exp
 
   frontend-build:
     name: Frontend build
