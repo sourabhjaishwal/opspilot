@@ -6,31 +6,25 @@ on:
       environment:
         description: Deployment environment
         required: true
-        default: dev
+        default: aws-demo
         type: choice
         options:
-          - dev
-          - demo
-      image_tag:
-        description: Docker image tag to deploy. Defaults to the Git commit SHA.
-        required: false
-        default: ""
+          - aws-demo
 
 permissions:
   contents: read
   id-token: write
-
-env:
-  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
-  ECR_REGISTRY: ${{ vars.ECR_REGISTRY || '547585703105.dkr.ecr.ap-south-1.amazonaws.com' }}
-  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'opspilot' }}
-  IMAGE_TAG: ${{ inputs.image_tag != '' && inputs.image_tag || github.sha }}
 
 jobs:
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Check out repository
@@ -82,27 +76,35 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG} -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_TAG}
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/opspilot-key.pem
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > ~/.ssh/opspilot-key.pem
           chmod 600 ~/.ssh/opspilot-key.pem
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
 
       - name: Create temporary Ansible inventory
         run: |
           cat > /tmp/opspilot-inventory.ini <<EOF
           [opspilot]
-          opspilot-ec2 ansible_host=${{ secrets.EC2_HOST }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/opspilot-key.pem
+          opspilot-ec2 ansible_host=$EC2_HOST ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/opspilot-key.pem
 
           [opspilot:vars]
           ansible_python_interpreter=/usr/bin/python3
           EOF
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
 
       - name: Install Ansible
         run: |
@@ -130,4 +132,4 @@ jobs:
           ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-2.0-flash-exp
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}

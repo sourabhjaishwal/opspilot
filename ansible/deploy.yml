@@ -12,6 +12,8 @@
     ecr_repository: "{{ lookup('env', 'ECR_REPOSITORY') | default('opspilot', true) }}"
     image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('latest', true) }}"
     ecr_image: "{{ ecr_registry }}/{{ ecr_repository }}:{{ image_tag }}"
+    app_environment: "{{ lookup('env', 'ENVIRONMENT') | default('production', true) }}"
+    use_local_env_file: false
     data_volume: "opspilot-data"
     container_name: "opspilot"
     app_port: 8000
@@ -101,7 +103,8 @@
       delegate_to: localhost
       become: false
       register: app_env_file
-      when: backend_env_file.stat.exists
+      no_log: true
+      when: use_local_env_file | bool and backend_env_file.stat.exists
 
     - name: Create application configuration directory
       ansible.builtin.file:
@@ -113,16 +116,16 @@
 
     - name: Install application environment file
       ansible.builtin.copy:
-        content: "{{ (app_env_file.content | b64decode) if backend_env_file.stat.exists else app_env_generated }}"
+        content: "{{ (app_env_file.content | b64decode) if (use_local_env_file | bool and backend_env_file.stat.exists) else app_env_generated }}"
         dest: /opt/opspilot/.env
         owner: root
         group: root
         mode: "0600"
-        no_log: true
+      no_log: true
       vars:
         app_env_generated: |
           APP_NAME={{ lookup('env', 'APP_NAME') | default('OpsPilot', true) | quote }}
-          ENVIRONMENT={{ lookup('env', 'ENVIRONMENT') | default('production', true) | quote }}
+          ENVIRONMENT={{ app_environment | quote }}
           DATABASE_URL={{ lookup('env', 'DATABASE_URL') | default('sqlite:///./data/opspilot.db', true) | quote }}
           LOG_LEVEL={{ lookup('env', 'LOG_LEVEL') | default('INFO', true) | quote }}
           JWT_SECRET={{ lookup('env', 'JWT_SECRET') | default('', true) | quote }}
@@ -144,16 +147,27 @@
         volumes:
           - "{{ data_volume }}:/app/data"
         env_file: "/opt/opspilot/.env"
-        healthcheck:
-          test:
-            - CMD
-            - python
-            - "-c"
-            - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 10s
+
+    - name: Wait for OpsPilot container to become healthy
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - "{% raw %}{{.State.Health.Status}}{% endraw %}"
+          - "{{ container_name }}"
+      register: container_health
+      changed_when: false
+      until: container_health.stdout | trim == "healthy"
+      retries: 30
+      delay: 5
+
+    - name: Verify OpsPilot HTTP health endpoint on EC2
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8000/health"
+        method: GET
+        status_code: 200
+        return_content: false
 
     - name: Display deployment success message
       ansible.builtin.debug:
