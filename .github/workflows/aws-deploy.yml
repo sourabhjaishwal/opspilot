@@ -1,4 +1,4 @@
-name: Deploy OpsPilot to AWS EC2
+name: OpsPilot AWS Deployment
 
 on:
   workflow_dispatch:
