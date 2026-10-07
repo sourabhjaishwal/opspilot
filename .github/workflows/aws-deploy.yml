@@ -1,6 +1,9 @@
 name: OpsPilot AWS Deployment
 
 on:
+  push:
+    branches:
+      - test
   workflow_dispatch:
     inputs:
       environment:
