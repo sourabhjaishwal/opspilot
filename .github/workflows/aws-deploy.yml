@@ -1,9 +1,6 @@
 name: OpsPilot AWS Deployment
 
 on:
-  push:
-    branches:
-      - test
   workflow_dispatch:
     inputs:
       environment:
@@ -22,7 +19,7 @@ jobs:
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
-    environment: aws-demo
+    environment: ${{ inputs.environment }}
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
