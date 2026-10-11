@@ -94,15 +94,48 @@ jobs:
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
       - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > ~/.ssh/opspilot-key.pem
-          chmod 600 ~/.ssh/opspilot-key.pem
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+        shell: bash
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "$EC2_HOST" ]]; then
+            echo "::error::EC2_HOST secret is empty or unavailable."
+            exit 1
+          fi
+
+          if [[ -z "$EC2_SSH_PRIVATE_KEY" ]]; then
+            echo "::error::EC2_SSH_PRIVATE_KEY secret is empty or unavailable."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" \
+            > ~/.ssh/opspilot-key.pem
+          chmod 600 ~/.ssh/opspilot-key.pem
+
+          echo "Checking SSH host resolution..."
+          if ! getent hosts "$EC2_HOST"; then
+            echo "::error::EC2_HOST did not resolve."
+            exit 1
+          fi
+
+          echo "Checking SSH port 22..."
+          if ! timeout 10 bash -c \
+            'cat < /dev/null > /dev/tcp/$1/22' _ "$EC2_HOST"; then
+            echo "::error::SSH port 22 is unreachable."
+            exit 1
+          fi
+
+          echo "Collecting SSH host key..."
+          ssh-keyscan -T 10 -H "$EC2_HOST" \
+            >> ~/.ssh/known_hosts
+
+          echo "SSH setup completed."
 
       - name: Create temporary Ansible inventory
         run: |
