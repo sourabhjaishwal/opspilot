@@ -1,25 +1,26 @@
-# Ansible Deployment for OpsPilot
+# Ansible deployment
 
-This directory contains Ansible playbooks and configuration for deploying OpsPilot to AWS EC2.
+This directory deploys the OpsPilot backend container from Amazon ECR to an Ubuntu EC2 instance. Ansible installs Docker and AWS CLI on the host, authenticates to ECR through the EC2 instance profile, writes runtime configuration, recreates the container, and checks its health. SQLite data is kept in the `opspilot-data` Docker volume.
 
-## Files
-
-- **`inventory.ini`** - Ansible inventory file (configure with your EC2 IP and SSH key)
-- **`deploy.yml`** - Main deployment playbook
-- **`ansible.cfg`** - Ansible configuration
+For a beginner-friendly walkthrough of AWS IAM, GitHub Actions, required settings, deployment, and rollback, see the [AWS deployment guide](../docs/AWS_DEPLOYMENT.md).
 
 ## Prerequisites
 
-1. Ansible installed locally: `pip install ansible docker`
-2. AWS EC2 instance running Ubuntu 22.04 LTS
-3. SSH key with access to EC2 instance
-4. Docker image built: `docker build -t opspilot:latest .`
+- An Ubuntu EC2 instance with SSH access and an instance profile that can pull the OpsPilot image from ECR.
+- An ECR image tag that already exists and is accessible to that instance.
+- Ansible and the `community.docker` collection on the control machine.
+- Python Docker SDK on the control machine and on EC2 (the playbook installs the EC2-side SDK in a virtual environment).
 
-## Configuration
+Install the control-machine dependencies:
 
-### 1. Update Inventory
+```bash
+python -m pip install ansible docker
+ansible-galaxy collection install community.docker
+```
 
-Edit `inventory.ini` and replace placeholders:
+## Configure the inventory
+
+Edit `inventory.ini` and set the current EC2 address and SSH private-key path. Keep private keys outside the repository.
 
 ```ini
 [opspilot]
@@ -29,133 +30,64 @@ opspilot-ec2 ansible_host=YOUR_EC2_PUBLIC_IP ansible_user=ubuntu ansible_ssh_pri
 ansible_python_interpreter=/usr/bin/python3
 ```
 
-### 2. Set Environment Variables
-
-Required environment variables (used by `deploy.yml`):
-
-```bash
-export JWT_SECRET="your-jwt-secret-min-32-chars"
-export GEMINI_API_KEY="your-gemini-api-key"
-export ALLOWED_ORIGINS="https://your-frontend.com"
-export FRONTEND_URL="https://your-frontend.com"
-```
-
-Optional variables (have defaults):
-
-```bash
-export APP_NAME="OpsPilot"
-export ENVIRONMENT="production"
-export LOG_LEVEL="INFO"
-export ACCESS_TOKEN_EXPIRE_MINUTES="60"
-export GEMINI_MODEL="gemini-2.0-flash-exp"
-```
-
-## Usage
-
-### Test Connection
+Test that Ansible can connect:
 
 ```bash
 ansible opspilot -i inventory.ini -m ping
 ```
 
-Expected output:
-```
-opspilot-ec2 | SUCCESS => {
-    "changed": false,
-    "ping": "pong"
-}
-```
+## Set deployment configuration
 
-### Transfer Docker Image to EC2
+The playbook reads these environment variables on the control machine:
+
+| Variable | Required | Default/notes |
+| --- | --- | --- |
+| `AWS_REGION` | No | Playbook default is `ap-south-1`; use the region containing ECR. |
+| `ECR_REGISTRY` | No | Defaults to the registry configured in the playbook. |
+| `ECR_REPOSITORY` | No | Defaults to `opspilot`. |
+| `IMAGE_TAG` | No | Defaults to `latest`; prefer a commit SHA for reproducible deploys. |
+| `JWT_SECRET` | Yes | Set a strong random value. |
+| `ALLOWED_ORIGINS` | Yes | Exact frontend origin(s), comma-separated if multiple. |
+| `FRONTEND_URL` | Yes | Public frontend URL. |
+| `GEMINI_API_KEY` | For AI analysis | Without it, AI analysis cannot be used. |
+| `APP_NAME`, `ENVIRONMENT`, `DATABASE_URL`, `LOG_LEVEL`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `GEMINI_MODEL` | No | Playbook provides defaults; set to override. |
+
+Do not commit secrets or paste them into logs. In PowerShell, set variables with `$env:NAME = "value"`; in Bash, use `export NAME="value"`.
+
+The requested `IMAGE_TAG` must already be pushed to ECR. The EC2 instance—not the Ansible controller—authenticates to ECR for the image pull, using its instance profile.
+
+## Deploy
+
+From this directory, run:
 
 ```bash
-# Save Docker image
-docker save opspilot:latest | gzip > /tmp/opspilot-latest.tar.gz
-
-# Transfer to EC2
-scp -i ~/.ssh/YOUR_KEY.pem /tmp/opspilot-latest.tar.gz ubuntu@YOUR_EC2_IP:/tmp/
-
-# Load on EC2
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@YOUR_EC2_IP "gunzip -c /tmp/opspilot-latest.tar.gz | docker load"
-```
-
-### Deploy
-
-```bash
+ansible-galaxy collection install community.docker
 ansible-playbook -i inventory.ini deploy.yml
 ```
 
-### Verify Deployment
+The playbook creates the `opspilot-data` volume if needed, writes application configuration to `/opt/opspilot/.env` with root-only permissions, deploys container `opspilot` on port 8000, and waits for Docker and HTTP health checks.
+
+Verify the application from a machine that can reach the EC2 host:
 
 ```bash
-curl http://YOUR_EC2_IP:8000/health
+curl http://YOUR_EC2_PUBLIC_IP:8000/health
 ```
 
 Expected response:
+
 ```json
 {"status":"healthy"}
 ```
 
-## What the Playbook Does
-
-1. Installs Docker on EC2 (if not present)
-2. Creates persistent Docker volume `opspilot-data`
-3. Stops old container (if running)
-4. Starts new container with:
-   - Port mapping: 8000:8000
-   - Volume mount: `opspilot-data:/app/data`
-   - Environment variables from your exports
-   - Restart policy: `unless-stopped`
-5. Waits for health check to pass
-6. Reports success
-
 ## Troubleshooting
 
-### Connection Issues
+On EC2, inspect the deployed container with:
 
 ```bash
-# Test SSH access
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@YOUR_EC2_IP
-
-# Verify EC2 security group allows:
-# - Port 22 (SSH) from your IP
-# - Port 8000 (HTTP) from 0.0.0.0/0
+sudo docker ps -a
+sudo docker logs opspilot
 ```
 
-### Playbook Errors
+If SSH fails, confirm that the host address and key are current and that the EC2 security group allows TCP 22 from the control machine. If image pulling fails, check the EC2 instance profile, ECR region/repository, and requested tag. Restrict public access to port 8000 to the required clients, or place the API behind an HTTPS reverse proxy/load balancer.
 
-Run with verbose output:
-```bash
-ansible-playbook -i inventory.ini deploy.yml -vvv
-```
-
-### Docker Issues on EC2
-
-```bash
-# SSH into EC2
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@YOUR_EC2_IP
-
-# Check Docker status
-docker ps
-docker logs opspilot-api
-
-# Verify image loaded
-docker images opspilot
-```
-
-## Notes
-
-- The playbook is idempotent—safe to run multiple times
-- SQLite data persists in the Docker volume across deployments
-- Old containers are removed, but the volume remains intact
-- Environment variables are passed from your shell to Ansible to Docker
-
-## GitHub Actions Integration
-
-In CI/CD, GitHub Actions:
-1. Builds the Docker image
-2. Transfers it to EC2 via SCP
-3. Runs this Ansible playbook with secrets from GitHub Secrets
-4. Verifies the health endpoint
-
-See `.github/workflows/deploy.yml` for the complete pipeline.
+Re-deploying replaces the container but keeps the named data volume. Back up the SQLite database before risky changes; restoring an earlier image does not revert database changes.
