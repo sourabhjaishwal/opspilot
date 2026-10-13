@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="690" viewBox="0 0 1120 690" role="img" aria-labelledby="title desc">
+  <title id="title">OpsPilot system architecture</title>
+  <desc id="desc">React frontend communicates with a FastAPI backend. The backend uses SQLite and local runbook retrieval, and calls Gemini for incident analysis. GitHub Actions deploys the backend image through ECR and Ansible to EC2.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#526581"/>
+    </marker>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .box { fill: #ffffff; stroke: #b8c5d8; stroke-width: 2; rx: 14; }
+      .cloud { fill: #eef5ff; stroke: #6b8bb8; stroke-width: 2; rx: 14; }
+      .deploy { fill: #f0f8f3; stroke: #78a68a; stroke-width: 2; rx: 14; }
+      .title { font: 700 20px sans-serif; fill: #172b4d; }
+      .label { font: 600 15px sans-serif; fill: #243b5a; }
+      .small { font: 14px sans-serif; fill: #526581; }
+      .arrow { fill: none; stroke: #526581; stroke-width: 2.2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="bg" width="1120" height="690" rx="18"/>
+  <text class="title" x="40" y="42">OpsPilot · application runtime</text>
+
+  <rect class="box" x="45" y="85" width="245" height="130"/>
+  <text class="label" x="70" y="120">Browser</text>
+  <text class="small" x="70" y="150">React 19 · Vite · SCSS</text>
+  <text class="small" x="70" y="178">JWT bearer token</text>
+
+  <rect class="box" x="390" y="85" width="300" height="130"/>
+  <text class="label" x="420" y="120">FastAPI REST API</text>
+  <text class="small" x="420" y="150">Auth · services · incidents</text>
+  <text class="small" x="420" y="178">Validation · CORS · health</text>
+  <path class="arrow" d="M290 145 H380"/>
+  <text class="small" x="300" y="130">HTTP / JSON</text>
+
+  <rect class="box" x="770" y="75" width="300" height="105"/>
+  <text class="label" x="800" y="110">SQLite database</text>
+  <text class="small" x="800" y="140">Users · services · incidents</text>
+  <path class="arrow" d="M690 130 H760"/>
+
+  <rect class="box" x="390" y="270" width="300" height="120"/>
+  <text class="label" x="420" y="305">AI analysis service</text>
+  <text class="small" x="420" y="335">Prompt + typed JSON response</text>
+  <text class="small" x="420" y="363">Per-incident 30-second limit</text>
+  <path class="arrow" d="M540 215 V260"/>
+
+  <rect class="box" x="45" y="285" width="245" height="105"/>
+  <text class="label" x="70" y="320">Local knowledge base</text>
+  <text class="small" x="70" y="350">JSON runbooks · top 3 matches</text>
+  <path class="arrow" d="M290 335 H380"/>
+
+  <rect class="cloud" x="770" y="270" width="300" height="120"/>
+  <text class="label" x="800" y="305">Google Gemini API</text>
+  <text class="small" x="800" y="335">Key stays on backend</text>
+  <text class="small" x="800" y="363">Advisory investigation output</text>
+  <path class="arrow" d="M690 330 H760"/>
+
+  <rect class="deploy" x="40" y="445" width="1030" height="205"/>
+  <text class="title" x="70" y="480">Backend deployment path</text>
+  <rect class="box" x="75" y="510" width="205" height="95"/>
+  <text class="label" x="98" y="545">GitHub Actions</text>
+  <text class="small" x="98" y="575">Manual workflow · OIDC</text>
+  <rect class="box" x="355" y="510" width="185" height="95"/>
+  <text class="label" x="385" y="545">Amazon ECR</text>
+  <text class="small" x="385" y="575">SHA-tagged image</text>
+  <rect class="box" x="615" y="510" width="190" height="95"/>
+  <text class="label" x="648" y="545">Ansible over SSH</text>
+  <text class="small" x="648" y="575">Configure · deploy</text>
+  <rect class="box" x="875" y="510" width="160" height="95"/>
+  <text class="label" x="910" y="545">AWS EC2</text>
+  <text class="small" x="893" y="575">Docker · FastAPI</text>
+  <path class="arrow" d="M280 558 H345"/>
+  <text class="small" x="287" y="545">push</text>
+  <path class="arrow" d="M540 558 H605"/>
+  <text class="small" x="548" y="545">SSH</text>
+  <path class="arrow" d="M805 558 H865"/>
+  <text class="small" x="810" y="545">pull &amp; run</text>
+  <text class="small" x="345" y="630">Docker volume opspilot-data → /app/data → SQLite file; container replacement preserves the volume, not a backup.</text>
+</svg>
