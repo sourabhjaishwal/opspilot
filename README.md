@@ -1,173 +1,209 @@
-﻿# OpsPilot
+# OpsPilot
 
-OpsPilot is a microservices incident response and service health management platform with local Retrieval-Augmented Generation (RAG) AI incident root-cause analysis.
+OpsPilot is a small incident and service-health management application for teams operating microservices. It provides a dashboard for recording service health, creating and tracking incidents, and requesting AI-assisted investigation suggestions.
 
-## Technology Stack
+## Project overview
 
-- **Backend:** Python 3.11+, FastAPI, SQLAlchemy, SQLite, Pydantic v2, google-genai SDK
-- **Frontend:** React 18, Vite, SCSS
-- **AI/RAG:** Google Gemini (`gemini-2.5-flash`), local token-matching retrieval engine
+The frontend is a React single-page application, and the backend is a FastAPI REST API. The backend validates requests, checks authentication and roles, and reads or writes users, services, and incidents in SQLite. When requested, it retrieves relevant entries from a local troubleshooting knowledge base and sends the incident context to Google Gemini for structured, advisory suggestions.
 
----
+The existing public demo uses **Vercel for the frontend and Render for the backend**. A separate optional AWS path deploys the backend container to EC2. The AWS path is manually triggered; it is not continuous deployment.
 
-## AI Incident Analysis
+## Features
 
-OpsPilot integrates Google Gemini to provide automated, structured root-cause insights and diagnostic investigation checklists directly in the operational incident response workflow.
+- Register and log in; password hashes and JWT bearer tokens are managed by the backend.
+- View service records and their recorded `healthy`, `degraded`, or `down` status.
+- Admin users can create, edit, update status, and delete services.
+- Authenticated users can create, view, filter, paginate, and update incidents.
+- Incidents have a severity, status, affected service, and generated `INC`-style number.
+- Request AI-assisted incident analysis with possible causes, suggested checks, and remediation ideas.
+- Local keyword matching retrieves up to three relevant runbook entries for AI context.
+- Seed six sample services and twelve fictional incidents for a demonstration.
+- Store the backend database in SQLite; the deployment playbook mounts a persistent Docker volume.
 
-### Architecture Flow
+## Architecture and deployment
 
-```text
-Incident (Client)
-      ↓
-POST /incidents/{incident_id}/analyze
-      ↓
-FastAPI Router (auth check via JWT Bearer)
-      ↓
-AI Service (`ai_service.py`)
-      ↓
-RAG Retrieval (`rag_service.py` -> local knowledge base)
-      ↓
-Gemini Prompt (Incident context + Retrieved knowledge)
-      ↓
-Gemini API (`client.models.generate_content`)
-      ↓
-Structured JSON Analysis (`AIIncidentAnalysis`)
-      ↓
-Frontend Advisory Dashboard
+```mermaid
+flowchart TB
+    browser["User / Browser"]
+
+    subgraph demo["Existing Public Demo"]
+        direction LR
+        web["Vercel<br/>React + Vite frontend"]
+        api["Render<br/>FastAPI backend"]
+        browser --> web
+        web -->|"HTTPS API requests<br/>VITE_API_BASE_URL + CORS"| api
+    end
+
+    subgraph runtime["Backend Request Processing"]
+        direction LR
+        auth["Authenticate JWT<br/>check authorization"]
+        handler["Validate request<br/>run route and service logic"]
+        sql[("SQLite<br/>users, services, incidents")]
+        incident["Incident + service context"]
+        retrieval["Local JSON knowledge<br/>keyword matching"]
+        prompt["Build analysis prompt"]
+        model["Gemini API<br/>Google GenAI SDK"]
+        result["Structured advisory analysis"]
+
+        auth --> handler
+        handler -->|"CRUD reads / writes"| sql
+        handler -->|"Analyze incident"| sql
+        sql -->|"Incident record"| incident
+        incident --> retrieval
+        retrieval -->|"Matching notes"| prompt
+        incident -->|"Incident details"| prompt
+        prompt --> model
+        model --> result
+        result --> handler
+    end
+
+    api --> auth
+    handler -->|"JSON response"| web
+
+    subgraph ci["Continuous Integration · Automatic Validation"]
+        direction LR
+        change["Push to main/test<br/>or pull request to main"]
+        tests["Backend tests"]
+        frontendBuild["Frontend build"]
+        imageCheck["Docker image build"]
+        change --> tests
+        change --> frontendBuild
+        tests --> imageCheck
+        frontendBuild --> imageCheck
+    end
+
+    subgraph aws["Optional AWS Backend Deployment · Manual"]
+        direction LR
+        start["Operator starts<br/>workflow_dispatch"]
+        deployWorkflow["GitHub Actions<br/>test + build + deploy"]
+        oidc["GitHub OIDC<br/>temporary IAM credentials"]
+        registry["Amazon ECR<br/>SHA-tagged backend image"]
+        ansible["SSH + Ansible<br/>deploy + health check"]
+        ec2["EC2<br/>Dockerized FastAPI backend"]
+        awsAuth["JWT authentication<br/>request handling"]
+        awsSql[("SQLite<br/>opspilot-data volume")]
+        awsKnowledge["Image-bundled<br/>local JSON knowledge"]
+        awsPrompt["Incident context<br/>+ retrieved notes"]
+        awsGemini["Gemini API<br/>Google GenAI SDK"]
+
+        start --> deployWorkflow
+        deployWorkflow --> oidc
+        oidc -->|"Push image"| registry
+        deployWorkflow -->|"SSH connection"| ansible
+        registry -->|"EC2 instance role pulls image"| ec2
+        ansible -->|"Configure and deploy"| ec2
+        ec2 --> awsAuth
+        awsAuth -->|"CRUD reads / writes"| awsSql
+        awsAuth -->|"Analyze incident"| awsSql
+        awsSql -->|"Incident details"| awsPrompt
+        awsAuth -->|"Incident text"| awsKnowledge
+        awsKnowledge -->|"Matching notes"| awsPrompt
+        awsPrompt --> awsGemini
+        awsGemini -->|"Structured analysis"| awsAuth
+    end
+
+    web -.->|"Optional frontend API target"| ec2
 ```
 
-### What Gemini Generates
+The live demo and optional AWS path are separate hosting choices. Both use the same frontend/API configuration pattern: `VITE_API_BASE_URL` is embedded when Vite builds the frontend, and backend CORS (`ALLOWED_ORIGINS`) must allow the frontend's exact origin. SQLite operations happen inside backend request processing. The EC2 option mounts SQLite data at `/app/data` from the `opspilot-data` Docker volume; a volume is not a backup.
 
-Gemini returns a strictly typed JSON object adhering to the `AIIncidentAnalysis` schema:
+**Workflow status checked October 13, 2026:** GitHub Actions run [#7](https://github.com/sourabhjaishwal/opspilot/actions/runs/38222352771) reports success for the manually dispatched AWS workflow on October 12, 2026. The workflow has only a `workflow_dispatch` trigger. CI is separate and runs validation on configured pushes and pull requests; it does not deploy AWS. A successful workflow is evidence for that run, not proof that the public app or AWS resources remain reachable now.
 
-1. **`summary`**: A concise, 1-sentence incident overview with an explicit disclaimer that findings are AI-generated recommendations.
-2. **`possible_root_cause`**: 1–2 sentence hypotheses of underlying failure mechanisms based on symptoms, service context, and retrieved troubleshooting steps.
-3. **`recommended_checks`**: An actionable diagnostic checklist of specific metrics, logs, queries, or configs to inspect.
-4. **`suggested_resolution`**: Pragmatic, concrete remediation steps.
-5. **`knowledge_used`**: A boolean flag indicating whether internal runbook entries matched and augmented the analysis.
+### Technology
 
-### Security and API Key Isolation
+| Area | Technology |
+| --- | --- |
+| Frontend | React 19, Vite 8, JavaScript, SCSS |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy, Pydantic settings |
+| Database | SQLite |
+| AI | Google Gemini through the Google GenAI SDK |
+| Retrieval | Local JSON knowledge base with keyword/token matching |
+| Container | Docker, Python 3.11 slim image, non-root runtime |
+| Hosting | Vercel + Render public demo; optional EC2 backend |
+| AWS delivery | GitHub Actions, OIDC, Amazon ECR, EC2, Ansible |
 
-The Gemini API key (`GEMINI_API_KEY`) is stored exclusively in backend environment variables (`.env`) and is **never** transmitted to or accessible from frontend clients. All AI calls are mediated by authenticated FastAPI endpoints (`POST /incidents/{incident_id}/analyze`).
+## Run locally
 
----
+### Backend
 
-## RAG / Knowledge Retrieval
+In a terminal from the repository root:
 
-OpsPilot implements a **lightweight, explainable local RAG system** designed for fast incident triage without complex vector infrastructure.
-
-### How it Works
-
-```text
-1. Incident is received (title, description, service, severity)
-         ↓
-2. Local Knowledge Base is searched (backend/app/knowledge/knowledge_base.json)
-         ↓
-3. Relevant entries are retrieved (token/keyword subset matching)
-         ↓
-4. Retrieved context is injected into the Gemini prompt
-         ↓
-5. Gemini generates the final context-aware analysis
-```
-
-1. **Query Tokenization:** The incident's `title`, `description`, `service_name`, and `severity` are lowercased and split into a normalized token set.
-2. **Subset Matching:** Each knowledge base entry contains a curated list of keywords/phrases (e.g., `"connection pool"`, `"500"`, `"timeout"`). An entry matches if all tokens of a keyword are present in the incident tokens.
-3. **Relevance Ranking:** Entries are scored by the count of matching keyword phrases and sorted in descending order.
-4. **Context Injection:** The top matches (up to 3) are formatted into structured text sections (causes, troubleshooting steps, resolutions) and appended to the Gemini prompt under a clear advisory header.
-5. **Graceful Fallback:** If no entries match, Gemini proceeds with zero-shot analysis using only the raw incident details.
-
-> **Note:** This is a lightweight, zero-dependency local RAG implementation for demonstration and MVP operational use, avoiding heavy external vector databases (Pinecone, Chroma, Milvus) while delivering explainable, deterministic retrieval.
-
----
-
-## Incident Number Format
-
-Every incident is automatically assigned a unique, ServiceNow-style incident number:
-
-* **Format:** `INC` + 5-digit zero-padded number (e.g., `INC00001`, `INC00042`, `INC00100`).
-* **Generation:** Derived using `SELECT MAX(id) + 1` from the SQLite database at creation time.
-* **Guarantees:** Unique, monotonically increasing, collision-free, and persistent in the database (`incidents.incident_number` column with unique index).
-* **Backfill:** Existing records without incident numbers are automatically assigned numbers during database seeding.
-
----
-
-## Database Seed & Demo Data
-
-The database includes an idempotent seed script covering realistic microservice architectures:
-
-```bash
-cd backend
-python -m app.scripts.seed
-```
-
-### Seeded Services (6):
-- **Payment API** (`down`) — Payment settlement and gateway webhook backlogs
-- **User Management API** (`degraded`) — OAuth2 token clock skew and LDAP timeouts
-- **Order Management API** (`degraded`) — DB connection pool timeouts and checkout locks
-- **Notification Service** (`healthy`) — Email/SMS rate limiting and template render warnings
-- **Inventory Service** (`healthy`) — Cache invalidation delays
-- **Reporting Service** (`healthy`) — Daily ledger aggregations
-
-### Seeded Incidents (12):
-Twelve realistic incidents with varying severities (`critical`, `high`, `medium`, `low`), statuses (`open`, `investigating`, `resolved`), and populated `INC00001`–`INC00012` identifiers.
-
----
-
-## Local Development Setup
-
-### 1. Backend Setup
-
-```bash
+```powershell
 cd backend
 python -m venv .venv
-# Windows:
 .\.venv\Scripts\Activate.ps1
-# macOS/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force data
 ```
 
-Configure `.env`:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-3.6-flash
-DATABASE_URL=sqlite:///./opspilot.db
-SECRET_KEY=opspilot-dev-secret-key-change-in-production-min-32-chars
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-```
+Edit `backend/.env` with local settings and a private development JWT secret. `GEMINI_API_KEY` is required only to call the Gemini analysis endpoint. Do not commit `.env` or use development secrets in a deployed environment.
 
-Run migrations & seed:
-```bash
-python -m app.scripts.seed
-```
+Start the API from `backend/`:
 
-Start the API:
-```bash
+```powershell
 uvicorn app.main:app --reload --port 8000
 ```
 
-API Documentation: `http://localhost:8000/docs`
+The interactive API documentation is at `http://localhost:8000/docs`; health is checked at `http://localhost:8000/health`.
 
-### 2. Frontend Setup
+To seed the SQLite database, use another terminal with the backend virtual environment active:
 
-```bash
+```powershell
+cd backend
+python -m app.scripts.seed
+```
+
+The seed operation is idempotent: it inserts missing demo records rather than resetting or deleting database content.
+
+### Frontend
+
+In a separate terminal:
+
+```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Frontend runs at `http://localhost:5173`.
+Open the Vite URL shown in the terminal (normally `http://localhost:5173`). The default development proxy targets `http://127.0.0.1:8000`. For a hosted production build, configure `VITE_API_BASE_URL` to the public API origin **before** `npm run build`; never use `localhost` for a public site.
 
----
+## Checks
 
-## Running Tests
+Backend tests use isolated test database fixtures and mock external AI calls. Configure the required application settings as described in `docs/BACKEND_TEST_RESULTS.md`, then run:
 
-Run the full automated test suite (60 unit and integration tests):
-
-```bash
-cd backend
-pytest -v
+```powershell
+python -m pytest backend\tests -q
 ```
 
-All tests run against isolated in-memory SQLite instances with fully mocked external AI APIs.
+Frontend checks from `frontend/`:
+
+```powershell
+npm run lint
+npm run build
+```
+
+The current documentation records 60 backend tests passing, with the frontend build and lint passing during the October 12, 2026 local review. Those results describe that review, not future changes or live deployment.
+
+## Documentation
+
+- [Product requirements and design](docs/PRD_AND_DESIGN.md)
+- [AWS deployment guide](docs/AWS_DEPLOYMENT.md)
+- [Deployment strategies and AWS fundamentals](docs/DEPLOYMENT_STRATEGIES.md)
+- [Deployment readiness checklist](docs/DEPLOYMENT_READINESS.md)
+- [Backend test results](docs/BACKEND_TEST_RESULTS.md)
+- [Frontend build results](docs/FRONTEND_BUILD_RESULTS.md)
+- [Database and seed-data results](docs/DATABASE_RESULTS.md)
+- [Ansible deployment instructions](ansible/README.md)
+- [Frontend setup and configuration](frontend/README.md)
+
+Personal interview and learning notes are kept locally in `/my-learning/` and are excluded from Git.
+
+## Current limitations
+
+OpsPilot is designed as a clear, extensible MVP. Its current scope keeps the project easy to run and demonstrate, while leaving a straightforward path for future operational capabilities:
+
+- **Service health:** The app records service status for teams to review; automatic health monitoring and alert ingestion are potential future additions.
+- **Incident assistance:** Gemini provides advisory investigation suggestions; automated remediation is intentionally outside the current workflow.
+- **Data and availability:** SQLite and the optional single-EC2 deployment keep infrastructure simple. Higher availability would call for managed database storage, tested backups, and a multi-instance design; the current Docker volume alone is not a backup.
+- **Account roles:** Service administration is role-protected, but public registration currently accepts a requested role, including `admin`. Before opening registration to untrusted users, enforce role assignment on the server and provide a trusted admin-provisioning process.
